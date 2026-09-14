@@ -1,0 +1,7 @@
+## Quadratic formula
+
+Solve with $x=\frac{-b\pm\sqrt{b^{2}-4ac}}{2a}$
+
+$$
+\sum_{i=1}^{n}{x_{i}}=\sin{\left(\theta\right)}
+$$

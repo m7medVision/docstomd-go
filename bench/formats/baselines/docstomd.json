@@ -1,0 +1,293 @@
+{
+  "fingerprint": {
+    "hostname": "archlinux",
+    "machine": "x86_64",
+    "platform": "Linux-7.2.4-arch1-2-x86_64-with-glibc2.44",
+    "cpus": 12,
+    "python": "3.14.7"
+  },
+  "engine_versions": {
+    "docstomd": "sha256:fabee6e926a4",
+    "baseline": "sha256:b33f61fcd5e6"
+  },
+  "corpus": {
+    "documents": 35,
+    "digest": "4c81c8f05037e4fea631bb85626002c1e15f36b3c8812d41e0cc4af96eb0b76a"
+  },
+  "formats": {
+    "pptx": {
+      "ours_in_baseline": 1.0,
+      "baseline_in_ours": 1.0,
+      "per_document": {
+        "detect/handmade-links.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "detect/pres.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "pptx/handmade-altpath.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "pptx/handmade-inherit.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "pptx/handmade-math.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "pptx/handmade-order.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "pptx/handmade-strict.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-small.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-medium.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-large.pptx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        }
+      },
+      "status": {
+        "docstomd": {
+          "ok": 10
+        },
+        "baseline": {
+          "ok": 10
+        }
+      },
+      "counts": {
+        "docstomd": {
+          "headings": 284,
+          "table_rows": 2,
+          "list_items": 1122,
+          "links": 281,
+          "footnotes": 0
+        },
+        "baseline": {
+          "headings": 284,
+          "table_rows": 2,
+          "list_items": 1122,
+          "links": 281,
+          "footnotes": 0
+        }
+      },
+      "speed": {
+        "docstomd": {
+          "documents": 10,
+          "median_ms": 3.0568289948860183,
+          "mb_per_s": 7.136839010147272
+        },
+        "baseline": {
+          "documents": 10,
+          "median_ms": 1.4529414984281175,
+          "mb_per_s": 15.411644437048858
+        }
+      }
+    },
+    "xlsx": {
+      "ours_in_baseline": 1.0,
+      "baseline_in_ours": 1.0,
+      "per_document": {
+        "detect/handmade-merged.xlsx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "detect/sheet.xlsx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-small.xlsx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-medium.xlsx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-large.xlsx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        }
+      },
+      "status": {
+        "docstomd": {
+          "ok": 5
+        },
+        "baseline": {
+          "ok": 5
+        }
+      },
+      "counts": {
+        "docstomd": {
+          "headings": 8,
+          "table_rows": 1881,
+          "list_items": 0,
+          "links": 0,
+          "footnotes": 0
+        },
+        "baseline": {
+          "headings": 8,
+          "table_rows": 1881,
+          "list_items": 0,
+          "links": 0,
+          "footnotes": 0
+        }
+      },
+      "speed": {
+        "docstomd": {
+          "documents": 5,
+          "median_ms": 3.8423039950430393,
+          "mb_per_s": 1.2130325301995606
+        },
+        "baseline": {
+          "documents": 5,
+          "median_ms": 1.8490350048523396,
+          "mb_per_s": 2.331108025232536
+        }
+      }
+    },
+    "docx": {
+      "ours_in_baseline": 1.0,
+      "baseline_in_ours": 1.0,
+      "per_document": {
+        "detect/handmade-rich.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "detect/handmade-strict.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "detect/text.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/handmade-altpath.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/handmade-blockstyle.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/handmade-manyrefs.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/handmade-math.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/handmade-numbering.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/handmade-ole.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/handmade-outline.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/handmade-tables.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/malformed/corrupt-styles--skips.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/malformed/mismatched--recovers.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/malformed/missing-styles--skips.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "docx/malformed/unclosed--recovers.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-small.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-medium.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        },
+        "generated/generated-large.docx": {
+          "ours_in_baseline": 1.0,
+          "baseline_in_ours": 1.0
+        }
+      },
+      "status": {
+        "docstomd": {
+          "ok": 18,
+          "unsupported": 2
+        },
+        "baseline": {
+          "ok": 18,
+          "error": 2
+        }
+      },
+      "counts": {
+        "docstomd": {
+          "headings": 199,
+          "table_rows": 390,
+          "list_items": 612,
+          "links": 102,
+          "footnotes": 100
+        },
+        "baseline": {
+          "headings": 199,
+          "table_rows": 390,
+          "list_items": 612,
+          "links": 102,
+          "footnotes": 100
+        }
+      },
+      "speed": {
+        "docstomd": {
+          "documents": 18,
+          "median_ms": 3.342516007251106,
+          "mb_per_s": 0.7752254754619309
+        },
+        "baseline": {
+          "documents": 18,
+          "median_ms": 1.2989195020054467,
+          "mb_per_s": 1.7283095178429224
+        }
+      }
+    }
+  },
+  "targets": {
+    "docx": {
+      "min_ours_in_baseline": 0.99,
+      "min_baseline_in_ours": 0.99
+    },
+    "xlsx": {
+      "min_ours_in_baseline": 0.99,
+      "min_baseline_in_ours": 0.99
+    },
+    "pptx": {
+      "min_ours_in_baseline": 0.99,
+      "min_baseline_in_ours": 0.99
+    }
+  }
+}

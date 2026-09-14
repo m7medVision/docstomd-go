@@ -1,0 +1,28 @@
+Body before.
+
+```
+fn main() {
+    println!("ok");
+}
+```
+
+Body between.
+
+> A quotation.
+>
+> Its second paragraph.
+
+Body between.
+
+> Word quote.
+>
+> Word intense quote.
+
+Body between.
+
+```
+HTML preformatted line.
+Inherits Source Code.
+```
+
+Body after.

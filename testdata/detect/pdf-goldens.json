@@ -1,0 +1,16 @@
+{
+"author_block_superscripts.pdf": {"pdf_type":"text_based","page_count":1,"pages_sampled":1,"pages_with_text":1,"confidence":1.00,"title":null,"ocr_recommended":false,"pages_needing_ocr":[],"ocr_reasons_by_page":[]},
+"cropbox_offset_origin.pdf": {"pdf_type":"text_based","page_count":1,"pages_sampled":1,"pages_with_text":1,"confidence":1.00,"title":null,"ocr_recommended":false,"pages_needing_ocr":[],"ocr_reasons_by_page":[]},
+"encrypted-secret123.pdf": {"error":"PDF is encrypted","page_count_hint":8},
+"forecast_table_chart.pdf": {"pdf_type":"text_based","page_count":1,"pages_sampled":1,"pages_with_text":1,"confidence":1.00,"title":null,"ocr_recommended":false,"pages_needing_ocr":[],"ocr_reasons_by_page":[]},
+"handmade-mixed.pdf": {"pdf_type":"image_based","page_count":2,"pages_sampled":2,"pages_with_text":0,"confidence":0.80,"title":null,"ocr_recommended":true,"pages_needing_ocr":[1,2],"ocr_reasons_by_page":[{"page":1,"reasons":["scanned"]},{"page":2,"reasons":["scanned"]}]},
+"handmade-scanned.pdf": {"pdf_type":"scanned","page_count":2,"pages_sampled":2,"pages_with_text":0,"confidence":0.95,"title":null,"ocr_recommended":true,"pages_needing_ocr":[1,2],"ocr_reasons_by_page":[{"page":1,"reasons":["scanned"]},{"page":2,"reasons":["scanned"]}]},
+"scan_with_native_header_text.pdf": {"pdf_type":"image_based","page_count":1,"pages_sampled":1,"pages_with_text":0,"confidence":0.80,"title":"untitled","ocr_recommended":true,"pages_needing_ocr":[1],"ocr_reasons_by_page":[{"page":1,"reasons":["scanned"]}]},
+"shifted_cipher_tounicode.pdf": {"pdf_type":"text_based","page_count":1,"pages_sampled":1,"pages_with_text":1,"confidence":1.00,"title":null,"ocr_recommended":false,"pages_needing_ocr":[],"ocr_reasons_by_page":[]},
+"shinagawa_identity_h.pdf": {"pdf_type":"text_based","page_count":1,"pages_sampled":1,"pages_with_text":1,"confidence":1.00,"title":"","ocr_recommended":false,"pages_needing_ocr":[1],"ocr_reasons_by_page":[{"page":1,"reasons":["suspected_garbled_text"]}]},
+"td9264.pdf": {"pdf_type":"text_based","page_count":10,"pages_sampled":8,"pages_with_text":8,"confidence":1.00,"title":null,"ocr_recommended":false,"pages_needing_ocr":[],"ocr_reasons_by_page":[]},
+"text_page_with_watermark_image.pdf": {"pdf_type":"text_based","page_count":1,"pages_sampled":1,"pages_with_text":1,"confidence":1.00,"title":null,"ocr_recommended":false,"pages_needing_ocr":[],"ocr_reasons_by_page":[]},
+"thermo-freon12.pdf": {"pdf_type":"text_based","page_count":3,"pages_sampled":3,"pages_with_text":3,"confidence":1.00,"title":null,"ocr_recommended":false,"pages_needing_ocr":[],"ocr_reasons_by_page":[]},
+"vector_outlined_text_with_caption.pdf": {"pdf_type":"image_based","page_count":1,"pages_sampled":1,"pages_with_text":0,"confidence":0.80,"title":null,"ocr_recommended":true,"pages_needing_ocr":[1],"ocr_reasons_by_page":[{"page":1,"reasons":["vector_text"]}]},
+"wireless_two_col_no_rects.pdf": {"pdf_type":"text_based","page_count":1,"pages_sampled":1,"pages_with_text":1,"confidence":1.00,"title":null,"ocr_recommended":false,"pages_needing_ocr":[],"ocr_reasons_by_page":[]}
+}

@@ -1,0 +1,10 @@
+%PDF-1.4
+1 0 obj << /Pages 2 0 R /Type /Catalog >> endobj
+2 0 obj << /Count 1 /Kids [3 0 R] /Type /Pages >> endobj
+3 0 obj << /Contents 4 0 R /MediaBox [0 0 300 200] /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Type /Page >> endobj
+4 0 obj << /Length 44 >> stream
+BT /F1 12 Tf 20 100 Td <01A901B701CE> Tj ET
+endstream endobj
+5 0 obj << /BaseFont /Fake-CID /DescendantFonts [6 0 R] /Encoding /Identity-H /Subtype /Type0 /Type /Font >> endobj
+6 0 obj << /BaseFont /Fake-CID /CIDSystemInfo << /Ordering (Identity) /Registry (Adobe) /Supplement 0 >> /DW 1000 /Subtype /CIDFontType2 /Type /Font >> endobj
+trailer << /Root 1 0 R /Size 7 >>

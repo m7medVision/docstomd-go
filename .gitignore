@@ -1,0 +1,8 @@
+reference/
+.env
+bench.env
+bench/.cache/
+bench/results/
+cmd/docstomd/docstomd
+__pycache__/
+*.pyc

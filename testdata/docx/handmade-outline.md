@@ -1,0 +1,9 @@
+## Style heading stays a heading
+
+### Direct level overrides the style
+
+Direct nine turns the style heading off
+
+# Direct outline without a style
+
+Child style nine stops inheritance
