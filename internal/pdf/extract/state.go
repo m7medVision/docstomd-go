@@ -9,7 +9,6 @@ import (
 type gfxState struct {
 	ctm         mat
 	renderMode  int
-	lineWidth   float64
 	charSpacing float64
 	wordSpacing float64
 	horizScale  float64
@@ -20,6 +19,7 @@ type gfxState struct {
 }
 
 type interp struct {
+	gfxState
 	doc                 *parse.Document
 	pageNum             int
 	fonts               map[string]*fontContext
@@ -28,19 +28,8 @@ type interp struct {
 	lines               []Line
 	painted             []Rect
 	strokeLines         []Line
-	ctm                 mat
 	textMat             mat
 	lineMat             mat
-	inText              bool
-	renderMode          int
-	lineWidth           float64
-	charSpace           float64
-	wordSpace           float64
-	horizScale          float64
-	textRise            float64
-	leading             float64
-	font                string
-	fontSize            float64
 	mcid                *int64
 	mcidStack           []mcidEntry
 	gstack              []gfxState
@@ -63,14 +52,33 @@ func newInterp(doc *parse.Document, pageNum int, resources []map[string]any, fon
 		pageNum:      pageNum,
 		fonts:        fonts,
 		resources:    resources,
-		ctm:          mat{1, 0, 0, 1, 0, 0},
 		textMat:      mat{1, 0, 0, 1, 0, 0},
 		lineMat:      mat{1, 0, 0, 1, 0, 0},
-		horizScale:   1,
-		fontSize:     12,
-		lineWidth:    1,
+		gfxState:     gfxState{ctm: mat{1, 0, 0, 1, 0, 0}, horizScale: 1, fontSize: 12},
 		visitedForms: map[parse.Ref]bool{},
 	}
+}
+
+// ensureFont builds the font context for a resource name on first use. Form
+// XObjects carry their own /Font resources, so a font selected inside a form
+// may be absent from the page-level prebuild; missing names cache as nil.
+func (it *interp) ensureFont(name string) {
+	if _, ok := it.fonts[name]; ok {
+		return
+	}
+	for _, res := range it.resources {
+		fonts, ok := dictOf(it.doc, res["Font"])
+		if !ok {
+			continue
+		}
+		fd, ok := dictOf(it.doc, fonts[name])
+		if !ok {
+			continue
+		}
+		it.fonts[name] = buildFontContext(it.doc, fd)
+		return
+	}
+	it.fonts[name] = nil
 }
 
 func (it *interp) run(content []byte) {
@@ -91,77 +99,72 @@ func (it *interp) run(content []byte) {
 func (it *interp) apply(op contentOp) {
 	switch op.operator {
 	case "q":
-		it.gstack = append(it.gstack, gfxState{it.ctm, it.renderMode, it.lineWidth, it.charSpace, it.wordSpace, it.horizScale, it.textRise, it.leading, it.font, it.fontSize})
+		it.gstack = append(it.gstack, it.gfxState)
 	case "Q":
 		if n := len(it.gstack); n > 0 {
-			s := it.gstack[n-1]
+			it.gfxState = it.gstack[n-1]
 			it.gstack = it.gstack[:n-1]
-			it.ctm, it.renderMode, it.lineWidth = s.ctm, s.renderMode, s.lineWidth
-			it.charSpace, it.wordSpace, it.horizScale = s.charSpacing, s.wordSpacing, s.horizScale
-			it.textRise, it.leading, it.font, it.fontSize = s.textRise, s.textLeading, s.font, s.fontSize
 		}
 	case "cm":
 		if len(op.operands) >= 6 {
 			var m mat
 			for i := 0; i < 6; i++ {
-				v, _ := operandFloat(op.operands[i])
+				v, _ := number(op.operands[i])
 				m[i] = v
 			}
 			it.ctm = matMul(m, it.ctm)
 		}
 	case "BT":
-		it.inText = true
 		it.textMat = mat{1, 0, 0, 1, 0, 0}
 		it.lineMat = mat{1, 0, 0, 1, 0, 0}
-	case "ET":
-		it.inText = false
 	case "Tf":
 		if len(op.operands) >= 2 {
 			if n, ok := op.operands[0].(parse.Name); ok {
 				it.font = string(n)
+				it.ensureFont(it.font)
 			}
-			sz, _ := operandFloat(op.operands[1])
+			sz, _ := number(op.operands[1])
 			it.fontSize = sz
 		}
 	case "Tc":
 		if len(op.operands) >= 1 {
-			it.charSpace, _ = operandFloat(op.operands[0])
+			it.charSpacing, _ = number(op.operands[0])
 		}
 	case "Tw":
 		if len(op.operands) >= 1 {
-			it.wordSpace, _ = operandFloat(op.operands[0])
+			it.wordSpacing, _ = number(op.operands[0])
 		}
 	case "Tz":
 		if len(op.operands) >= 1 {
-			v, _ := operandFloat(op.operands[0])
+			v, _ := number(op.operands[0])
 			it.horizScale = v / 100
 		}
 	case "TL":
 		if len(op.operands) >= 1 {
-			it.leading, _ = operandFloat(op.operands[0])
+			it.textLeading, _ = number(op.operands[0])
 		}
 	case "Ts":
 		if len(op.operands) >= 1 {
-			it.textRise, _ = operandFloat(op.operands[0])
+			it.textRise, _ = number(op.operands[0])
 		}
 	case "Tr":
 		if len(op.operands) >= 1 {
-			v, _ := operandFloat(op.operands[0])
+			v, _ := number(op.operands[0])
 			it.renderMode = int(v)
 		}
 	case "Td":
 		if len(op.operands) >= 2 {
-			tx, _ := operandFloat(op.operands[0])
-			ty, _ := operandFloat(op.operands[1])
+			tx, _ := number(op.operands[0])
+			ty, _ := number(op.operands[1])
 			m := mat{1, 0, 0, 1, tx, ty}
 			it.lineMat = matMul(m, it.lineMat)
 			it.textMat = it.lineMat
 		}
 	case "TD":
 		if len(op.operands) >= 2 {
-			tx, _ := operandFloat(op.operands[0])
-			ty, _ := operandFloat(op.operands[1])
-			it.leading = -ty
+			tx, _ := number(op.operands[0])
+			ty, _ := number(op.operands[1])
+			it.textLeading = -ty
 			m := mat{1, 0, 0, 1, tx, ty}
 			it.lineMat = matMul(m, it.lineMat)
 			it.textMat = it.lineMat
@@ -170,25 +173,25 @@ func (it *interp) apply(op contentOp) {
 		if len(op.operands) >= 6 {
 			var m mat
 			for i := 0; i < 6; i++ {
-				v, _ := operandFloat(op.operands[i])
+				v, _ := number(op.operands[i])
 				m[i] = v
 			}
 			it.textMat = m
 			it.lineMat = m
 		}
 	case "T*":
-		m := mat{1, 0, 0, 1, 0, -it.leading}
+		m := mat{1, 0, 0, 1, 0, -it.textLeading}
 		it.lineMat = matMul(m, it.lineMat)
 		it.textMat = it.lineMat
 	case "Tj", "'", "\"":
 		if len(op.operands) >= 1 {
 			if op.operator == "'" {
-				m := mat{1, 0, 0, 1, 0, -it.leading}
+				m := mat{1, 0, 0, 1, 0, -it.textLeading}
 				it.lineMat = matMul(m, it.lineMat)
 				it.textMat = it.lineMat
 			} else if op.operator == "\"" && len(op.operands) >= 3 {
-				it.wordSpace, _ = operandFloat(op.operands[0])
-				it.charSpace, _ = operandFloat(op.operands[1])
+				it.wordSpacing, _ = number(op.operands[0])
+				it.charSpacing, _ = number(op.operands[1])
 			}
 			idx := 0
 			if op.operator == "\"" {
@@ -206,10 +209,10 @@ func (it *interp) apply(op contentOp) {
 		}
 	case "re":
 		if len(op.operands) >= 4 {
-			x, _ := operandFloat(op.operands[0])
-			y, _ := operandFloat(op.operands[1])
-			w, _ := operandFloat(op.operands[2])
-			h, _ := operandFloat(op.operands[3])
+			x, _ := number(op.operands[0])
+			y, _ := number(op.operands[1])
+			w, _ := number(op.operands[2])
+			h, _ := number(op.operands[3])
 			p1 := transformPoint(it.ctm, x, y)
 			p2 := transformPoint(it.ctm, x+w, y+h)
 			rx, ry := math.Min(p1[0], p2[0]), math.Min(p1[1], p2[1])
@@ -219,8 +222,8 @@ func (it *interp) apply(op contentOp) {
 		}
 	case "m", "l":
 		if len(op.operands) >= 2 {
-			x, _ := operandFloat(op.operands[0])
-			y, _ := operandFloat(op.operands[1])
+			x, _ := number(op.operands[0])
+			y, _ := number(op.operands[1])
 			p := transformPoint(it.ctm, x, y)
 			pp := &[2]float64{p[0], p[1]}
 			if op.operator == "m" {
@@ -248,12 +251,6 @@ func (it *interp) apply(op contentOp) {
 		it.pendingPaint = nil
 		it.pendingLinesList = nil
 		it.pathStart, it.pathLast = nil, nil
-	case "w":
-		if len(op.operands) >= 1 {
-			v, _ := operandFloat(op.operands[0])
-			scale := math.Sqrt(math.Abs(it.ctm[0]*it.ctm[3] - it.ctm[1]*it.ctm[2]))
-			it.lineWidth = v * scale
-		}
 	case "BDC", "BMC":
 		var entry mcidEntry
 		if len(op.operands) == 2 {

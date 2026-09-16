@@ -258,13 +258,7 @@ func regionFromRows(rows []rectRow, page int) *Region {
 	for _, r := range rows {
 		rowY = append(rowY, r.top(), r.bottom())
 	}
-	sort.Float64s(rowY)
-	var deduped []float64
-	for _, v := range rowY {
-		if len(deduped) == 0 || v-deduped[len(deduped)-1] > 1.5 {
-			deduped = append(deduped, v)
-		}
-	}
+	deduped := dedupeSorted(rowY, 1.5)
 	return &Region{
 		Page: page,
 		X0:   colX[0], X1: colX[len(colX)-1],
@@ -305,14 +299,7 @@ func boundariesWithSupport(edges []float64, minSupport int) []float64 {
 			out = append(out, c.value)
 		}
 	}
-	sort.Float64s(out)
-	var deduped []float64
-	for _, v := range out {
-		if len(deduped) == 0 || v-deduped[len(deduped)-1] > edgeClusterTol {
-			deduped = append(deduped, v)
-		}
-	}
-	return deduped
+	return dedupeSorted(out, edgeClusterTol)
 }
 
 func fillCells(region *Region, items []extract.TextItem, used map[*extract.TextItem]bool) {
@@ -487,14 +474,7 @@ func (r *Region) Render() string {
 	for len(out) > 2 && pipeRowIsEmpty(out[len(out)-1]) {
 		out = out[:len(out)-1]
 	}
-	result := ""
-	for i, line := range out {
-		if i > 0 {
-			result += "\n"
-		}
-		result += line
-	}
-	return result
+	return strings.Join(out, "\n")
 }
 
 func pipeRowIsEmpty(line string) bool {

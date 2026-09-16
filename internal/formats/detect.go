@@ -84,7 +84,7 @@ func Detect(data []byte, name string) Format {
 			return fromExtension(name)
 		}
 		return inspectOPC(pkg)
-	case bytes.Contains(head(data, 1024), pdfMagic):
+	case bytes.Contains(data[:min(len(data), 1024)], pdfMagic):
 		return PDF
 	}
 	return fromExtension(name)
@@ -92,13 +92,6 @@ func Detect(data []byte, name string) Format {
 
 func isZip(data []byte) bool {
 	return bytes.HasPrefix(data, []byte("PK\x03\x04")) || bytes.HasPrefix(data, []byte("PK\x05\x06"))
-}
-
-func head(data []byte, n int) []byte {
-	if len(data) <= n {
-		return data
-	}
-	return data[:n]
 }
 
 // inspectOPC classifies a package by its officeDocument main part, falling

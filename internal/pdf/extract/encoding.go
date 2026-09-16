@@ -20,16 +20,7 @@ func encodingFor(doc *parse.Document, fontDict map[string]any) map[byte]rune {
 	if ok && (int64(flags)&32) != 0 {
 		symbolic = true
 	}
-	encObj := fontDict["Encoding"]
-	if ref, isRef := encObj.(parse.Ref); isRef {
-		resolved, err := doc.GetObject(ref.Num)
-		if err == nil {
-			encObj = resolved
-		} else {
-			encObj = nil
-		}
-	}
-	switch enc := doc.Resolve(encObj).(type) {
+	switch enc := doc.Resolve(fontDict["Encoding"]).(type) {
 	case parse.Name:
 		switch enc {
 		case "WinAnsiEncoding":

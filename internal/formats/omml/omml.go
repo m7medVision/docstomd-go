@@ -213,10 +213,13 @@ func mathRun(r *opc.Element, t *texBuf, mode mathMode) {
 	if text == "" {
 		return
 	}
+	rpr := r.Child(nsM, "rPr")
 	value := func(name string) (string, bool) {
 		e := r.Child(nsM, name)
-		if rpr := r.Child(nsM, "rPr"); rpr != nil && rpr.Child(nsM, name) != nil {
-			e = rpr.Child(nsM, name)
+		if rpr != nil {
+			if fromPr := rpr.Child(nsM, name); fromPr != nil {
+				e = fromPr
+			}
 		}
 		return propValue(e)
 	}

@@ -8,16 +8,20 @@ type pageAnalysis struct {
 	textOperatorCount       int
 	hasImages               bool
 	hasTemplateImage        bool
-	totalImageArea          uint64
 	imageCount              int
 	uniqueTextChars         int
 	uniqueAlphanumChars     int
-	pathOpCount             int
 	hasVectorText           bool
 	hasIdentityHNoToUnicode bool
 	hasOnlyType3Fonts       bool
 	fontChangeCount         int
 	hasDecodableTextFonts   bool
+}
+
+func (a pageAnalysis) looksLikeScan() bool {
+	return a.imageCount <= 1 && a.textOperatorCount < 50 &&
+		a.uniqueAlphanumChars < 10 &&
+		!(a.hasDecodableTextFonts && a.textOperatorCount >= 10)
 }
 
 func analyzePageContent(doc *parse.Document, pageRef parse.Ref) pageAnalysis {
@@ -43,12 +47,10 @@ func analyzePageContent(doc *parse.Document, pageRef parse.Ref) pageAnalysis {
 		}
 		content, _ := doc.StreamData(stm)
 		fontNames := map[string]bool{}
-		ops, imgs, paths, fonts := scanContent(content, uniqueChars, fontNames)
+		ops, paths, fonts := scanContent(content, uniqueChars, fontNames)
 		textOps += ops
-		imageCount += imgs
 		pathOps += paths
 		fontChanges += fonts
-		hasImages = hasImages || imgs > 0
 		resolveFontNamesScoped(doc, resourceScopes, fontNames, usedFontIDs)
 	}
 
@@ -63,7 +65,7 @@ func analyzePageContent(doc *parse.Document, pageRef parse.Ref) pageAnalysis {
 		hasImages = hasImages || imgs > 0
 	}
 
-	foundImages, totalArea, hasTemplateImage := analyzePageImages(doc, pageRef)
+	foundImages, _, hasTemplateImage := analyzePageImages(doc, pageRef)
 	if foundImages {
 		hasImages = true
 	}
@@ -84,11 +86,9 @@ func analyzePageContent(doc *parse.Document, pageRef parse.Ref) pageAnalysis {
 		textOperatorCount:       textOps,
 		hasImages:               hasImages,
 		hasTemplateImage:        hasTemplateImage,
-		totalImageArea:          totalArea,
 		imageCount:              imageCount,
 		uniqueTextChars:         len(uniqueChars),
 		uniqueAlphanumChars:     alphanum,
-		pathOpCount:             pathOps,
 		hasVectorText:           hasVectorText,
 		hasIdentityHNoToUnicode: hasIdentityH,
 		hasOnlyType3Fonts:       hasOnlyType3,
@@ -97,7 +97,7 @@ func analyzePageContent(doc *parse.Document, pageRef parse.Ref) pageAnalysis {
 	}
 }
 
-func scanContent(content []byte, uniqueChars map[byte]bool, usedFontNames map[string]bool) (int, int, int, int) {
+func scanContent(content []byte, uniqueChars map[byte]bool, usedFontNames map[string]bool) (int, int, int) {
 	textOps := 0
 	pathOps := 0
 	fontChanges := 0
@@ -154,7 +154,7 @@ func scanContent(content []byte, uniqueChars map[byte]bool, usedFontNames map[st
 		}
 	}
 
-	return textOps, 0, pathOps, fontChanges
+	return textOps, pathOps, fontChanges
 }
 
 func isPDFSpace(c byte) bool {
@@ -461,9 +461,8 @@ func scanXObjects(doc *parse.Document, resources map[string]any, visited map[par
 		case "Form":
 			content, _ := doc.StreamData(stm)
 			fontNames := map[string]bool{}
-			ops, imgs, paths, fonts := scanContent(content, uniqueChars, fontNames)
+			ops, paths, fonts := scanContent(content, uniqueChars, fontNames)
 			textOps += ops
-			imageCount += imgs
 			pathOps += paths
 			fontChanges += fonts
 			if res, ok := dictOf(doc, stm.Dict["Resources"]); ok {

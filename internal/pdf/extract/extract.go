@@ -2,6 +2,7 @@ package extract
 
 import (
 	"math"
+	"strings"
 
 	"github.com/m7medVision/docstomd-go/internal/pdf/parse"
 )
@@ -51,7 +52,7 @@ func Extract(doc *parse.Document) []PageResult {
 		items = append(items, linkItems...)
 		hasIssues := false
 		for _, item := range items {
-			if !hasIssues && stringsContainsRune(item.Text, 0xFFFD) {
+			if !hasIssues && strings.ContainsRune(item.Text, 0xFFFD) {
 				hasIssues = true
 			}
 		}
@@ -67,15 +68,6 @@ func firstNonNil(scopes []map[string]any, key string) any {
 		}
 	}
 	return nil
-}
-
-func stringsContainsRune(s string, r rune) bool {
-	for _, c := range s {
-		if c == r {
-			return true
-		}
-	}
-	return false
 }
 
 func shiftItems(items []TextItem, box pageBox) {

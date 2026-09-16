@@ -4,7 +4,6 @@
 package docx
 
 import (
-	"errors"
 	"log/slog"
 	"strconv"
 
@@ -220,16 +219,4 @@ func onOff(parent *opc.Element, local string) (on, specified bool) {
 		return false, true
 	}
 	return true, true
-}
-
-func firstDescendant(e *opc.Element, space, local string) *opc.Element {
-	for d := range e.Descendants(space, local) {
-		return d
-	}
-	return nil
-}
-
-func isFatal(err error) bool {
-	var limit *model.LimitError
-	return errors.As(err, &limit)
 }

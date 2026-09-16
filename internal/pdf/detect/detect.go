@@ -3,7 +3,7 @@
 package detect
 
 import (
-	"sort"
+	"slices"
 
 	"github.com/m7medVision/docstomd-go/internal/pdf/parse"
 )
@@ -71,15 +71,11 @@ type Result struct {
 }
 
 func Detect(data []byte) (*Result, error) {
-	return DetectWithConfig(data, DefaultConfig())
-}
-
-func DetectWithConfig(data []byte, cfg Config) (*Result, error) {
 	doc, err := parse.Parse(data)
 	if err != nil {
 		return nil, err
 	}
-	return FromDocument(doc, cfg), nil
+	return FromDocument(doc, DefaultConfig()), nil
 }
 
 func FromDocument(doc *parse.Document, cfg Config) *Result {
@@ -106,7 +102,7 @@ func FromDocument(doc *parse.Document, cfg Config) *Result {
 				sampleIndices = append(sampleIndices, p)
 			}
 		}
-		sort.Ints(sampleIndices)
+		slices.Sort(sampleIndices)
 	default:
 		sampleIndices = distributePages(cfg.Strategy.Max, totalPages)
 	}
@@ -120,9 +116,6 @@ func FromDocument(doc *parse.Document, cfg Config) *Result {
 	pagesSampled := 0
 
 	for _, pageNum := range sampleIndices {
-		if pageNum < 1 || pageNum > totalPages {
-			continue
-		}
 		analysis := analyzePageContent(doc, pages[pageNum-1])
 		pagesSampled++
 		isImageDominated := analysis.imageCount > 10 && analysis.imageCount > analysis.textOperatorCount*3
@@ -140,10 +133,7 @@ func FromDocument(doc *parse.Document, cfg Config) *Result {
 		if analysis.hasImages {
 			pagesWithImages++
 		}
-		alphanumOK := analysis.uniqueAlphanumChars < 10 &&
-			!(analysis.hasDecodableTextFonts && analysis.textOperatorCount >= 10)
-		if analysis.hasTemplateImage &&
-			(analysis.imageCount <= 1 && analysis.textOperatorCount < 50 && alphanumOK) {
+		if analysis.hasTemplateImage && analysis.looksLikeScan() {
 			pagesWithTemplateImages++
 		}
 		if analysis.hasVectorText {
@@ -230,18 +220,12 @@ func FromDocument(doc *parse.Document, cfg Config) *Result {
 		for pageNum := 1; pageNum <= totalPages; pageNum++ {
 			analysis, cached := analysisCache[pageNum]
 			if !cached {
-				if pageNum > totalPages {
-					continue
-				}
 				analysis = analyzePageContent(doc, pages[pageNum-1])
 				analysisCache[pageNum] = analysis
 			}
-			alphanumLow := analysis.uniqueAlphanumChars < 10 &&
-				!(analysis.hasDecodableTextFonts && analysis.textOperatorCount >= 10)
-			looksLikeScan := analysis.imageCount <= 1 && analysis.textOperatorCount < 50 && alphanumLow
 			sparseTextOverScan := analysis.hasTemplateImage &&
 				analysis.textOperatorCount < max(cfg.MinTextOpsPerPage, 10)
-			if (analysis.hasTemplateImage && looksLikeScan) ||
+			if (analysis.hasTemplateImage && analysis.looksLikeScan()) ||
 				analysis.hasVectorText ||
 				sparseTextOverScan ||
 				(analysis.textOperatorCount < cfg.MinTextOpsPerPage && analysis.hasImages) {
@@ -251,13 +235,13 @@ func FromDocument(doc *parse.Document, cfg Config) *Result {
 	}
 
 	for pageNum, analysis := range analysisCache {
-		if (analysis.hasIdentityHNoToUnicode || analysis.hasOnlyType3Fonts) && !containsInt(pagesNeedingOCR, pageNum) {
+		if (analysis.hasIdentityHNoToUnicode || analysis.hasOnlyType3Fonts) && !slices.Contains(pagesNeedingOCR, pageNum) {
 			pagesNeedingOCR = append(pagesNeedingOCR, pageNum)
 		}
 	}
 	if len(pagesNeedingOCR) < totalPages {
 		for pageNum := 1; pageNum <= totalPages; pageNum++ {
-			if _, cached := analysisCache[pageNum]; cached || containsInt(pagesNeedingOCR, pageNum) {
+			if _, cached := analysisCache[pageNum]; cached || slices.Contains(pagesNeedingOCR, pageNum) {
 				continue
 			}
 			analysis := analyzePageContent(doc, pages[pageNum-1])
@@ -267,8 +251,8 @@ func FromDocument(doc *parse.Document, cfg Config) *Result {
 			}
 		}
 	}
-	sort.Ints(pagesNeedingOCR)
-	pagesNeedingOCR = dedupInts(pagesNeedingOCR)
+	slices.Sort(pagesNeedingOCR)
+	pagesNeedingOCR = slices.Compact(pagesNeedingOCR)
 
 	reasons := []PageReasons{}
 	for _, pageNum := range pagesNeedingOCR {
@@ -336,30 +320,11 @@ func distributePages(n, total int) []int {
 		step := (total - 2) / (remaining + 1)
 		for i := 1; i <= remaining; i++ {
 			idx := 1 + step*i
-			if idx > 1 && idx < total && !containsInt(indices, idx) {
+			if idx > 1 && idx < total && !slices.Contains(indices, idx) {
 				indices = append(indices, idx)
 			}
 		}
 	}
-	sort.Ints(indices)
-	return dedupInts(indices)
-}
-
-func containsInt(list []int, v int) bool {
-	for _, x := range list {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
-
-func dedupInts(list []int) []int {
-	out := list[:0]
-	for i, x := range list {
-		if i == 0 || list[i-1] != x {
-			out = append(out, x)
-		}
-	}
-	return out
+	slices.Sort(indices)
+	return slices.Compact(indices)
 }

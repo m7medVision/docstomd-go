@@ -5,7 +5,7 @@ package quality
 
 import (
 	"math"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -16,9 +16,7 @@ import (
 var ReasonSuspectedGarble = pdfdetect.ReasonSuspectedGarble
 
 type Report struct {
-	PagesNeedingOCR   []int
-	ReasonsByPage     map[int][]string
-	HasEncodingIssues bool
+	PagesNeedingOCR []int
 }
 
 // Analyze is the single-string convenience over AnalyzeItems.
@@ -79,12 +77,8 @@ func AnalyzeItems(items []extract.TextItem) Report {
 	for p := range reasons {
 		pages = append(pages, p)
 	}
-	sort.Ints(pages)
-	return Report{
-		PagesNeedingOCR:   pages,
-		ReasonsByPage:     reasons,
-		HasEncodingIssues: len(pages) > 0,
-	}
+	slices.Sort(pages)
+	return Report{PagesNeedingOCR: pages}
 }
 
 // AppendReason adds reason to list unless already present.
@@ -378,10 +372,11 @@ func (c *cipherStats) englishShapeCosine() float64 {
 	for i, count := range c.letterCounts {
 		obs[i] = float64(count) / n
 	}
-	en := englishLetterFreq
-	sortFloatsDesc(obs)
-	sortedEn := en
-	sortFloatsDesc(sortedEn[:])
+	slices.Sort(obs)
+	slices.Reverse(obs)
+	sortedEn := slices.Clone(englishLetterFreq[:])
+	slices.Sort(sortedEn)
+	slices.Reverse(sortedEn)
 	dot, normObs, normEn := 0.0, 0.0, 0.0
 	for i := range obs {
 		dot += obs[i] * sortedEn[i]
@@ -389,13 +384,6 @@ func (c *cipherStats) englishShapeCosine() float64 {
 		normEn += sortedEn[i] * sortedEn[i]
 	}
 	return dot / (math.Sqrt(normObs) * math.Sqrt(normEn))
-}
-
-func sortFloatsDesc(a []float64) {
-	sort.Float64s(a)
-	for i, j := 0, len(a)-1; i < j; i, j = i+1, j-1 {
-		a[i], a[j] = a[j], a[i]
-	}
 }
 
 func (c *cipherStats) looksGarbled() bool {

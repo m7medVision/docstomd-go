@@ -49,23 +49,17 @@ func (r *renderer) table(t model.Table) string {
 	if width == 0 {
 		return ""
 	}
-	header := make([]string, width)
+	header := make([]renderedCell, width)
 	if t.HeaderRows >= 1 {
-		for j := range width {
-			header[j] = rendered[0][j].text
-		}
+		copy(header, rendered[0])
 		rendered = rendered[1:]
 	}
 	var sb strings.Builder
 	writeRow(&sb, header)
 	sb.WriteString("\n|" + strings.Repeat(" --- |", width))
-	texts := make([]string, width)
 	for _, row := range rendered {
-		for j := range width {
-			texts[j] = row[j].text
-		}
 		sb.WriteByte('\n')
-		writeRow(&sb, texts)
+		writeRow(&sb, row[:width])
 	}
 	return sb.String()
 }
@@ -79,11 +73,11 @@ func blankRow(row []renderedCell) bool {
 	return true
 }
 
-func writeRow(sb *strings.Builder, cells []string) {
+func writeRow(sb *strings.Builder, cells []renderedCell) {
 	sb.WriteByte('|')
 	for _, c := range cells {
 		sb.WriteByte(' ')
-		sb.WriteString(c)
+		sb.WriteString(c.text)
 		sb.WriteString(" |")
 	}
 }

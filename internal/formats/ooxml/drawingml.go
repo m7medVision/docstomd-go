@@ -11,7 +11,7 @@ import (
 // series table of the cached display strings; c:f formulas are not text.
 func ChartBlocks(root *opc.Element) []model.Block {
 	var blocks []model.Block
-	if title := firstDescendant(root, opc.NSChart, "title"); title != nil {
+	if title := root.FirstDescendant(opc.NSChart, "title"); title != nil {
 		if text := CleanText(drawingText(title)); strings.TrimSpace(text) != "" {
 			blocks = append(blocks, model.Paragraph{model.Text{Text: text, Style: model.Style{Bold: true}}})
 		}
@@ -27,7 +27,7 @@ func ChartBlocks(root *opc.Element) []model.Block {
 	for ser := range root.Descendants(opc.NSChart, "ser") {
 		var s series
 		if tx := ser.Child(opc.NSChart, "tx"); tx != nil {
-			if v := firstDescendant(tx, opc.NSChart, "v"); v != nil {
+			if v := tx.FirstDescendant(opc.NSChart, "v"); v != nil {
 				s.name = CleanText(v.Text())
 			}
 		}
@@ -41,7 +41,7 @@ func ChartBlocks(root *opc.Element) []model.Block {
 		return blocks
 	}
 	var axisTitle string
-	if ax := firstDescendant(root, opc.NSChart, "catAx"); ax != nil {
+	if ax := root.FirstDescendant(opc.NSChart, "catAx"); ax != nil {
 		if title := ax.Child(opc.NSChart, "title"); title != nil {
 			axisTitle = CleanText(drawingText(title))
 		}
@@ -112,11 +112,4 @@ func drawingText(e *opc.Element) string {
 		return e.Text()
 	}
 	return strings.Join(parts, " ")
-}
-
-func firstDescendant(e *opc.Element, space, local string) *opc.Element {
-	for d := range e.Descendants(space, local) {
-		return d
-	}
-	return nil
 }

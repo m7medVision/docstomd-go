@@ -447,21 +447,9 @@ func (d *Document) walkPages(node Ref, parentChain []Ref) error {
 	case Name("Page"):
 		d.pages = append(d.pages, node)
 		return nil
-	case Name("Pages"):
-		kids, ok := d.Resolve(dict["Kids"]).([]any)
-		if !ok {
-			return nil
-		}
-		for _, kid := range kids {
-			if kidRef, ok := kid.(Ref); ok {
-				if err := d.walkPages(kidRef, chain); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
 	}
-	if _, hasKids := dict["Kids"]; hasKids {
+	_, hasKids := dict["Kids"]
+	if dict["Type"] == Name("Pages") || hasKids {
 		kids, _ := d.Resolve(dict["Kids"]).([]any)
 		for _, kid := range kids {
 			if kidRef, ok := kid.(Ref); ok {

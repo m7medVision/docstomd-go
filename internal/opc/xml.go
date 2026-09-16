@@ -114,6 +114,15 @@ func (e *Element) Descendants(space, local string) iter.Seq[*Element] {
 	}
 }
 
+// FirstDescendant returns the first matching element below e in document
+// order, or nil.
+func (e *Element) FirstDescendant(space, local string) *Element {
+	for d := range e.Descendants(space, local) {
+		return d
+	}
+	return nil
+}
+
 func (e *Element) walk(visit func(*Element) bool) bool {
 	for c := range e.Elements() {
 		if !visit(c) || !c.walk(visit) {

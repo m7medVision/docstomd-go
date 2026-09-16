@@ -14,7 +14,6 @@ type fontContext struct {
 	enc                    map[byte]rune
 	toUnicode              *cmap
 	fallback               *cmap
-	hasCMap                bool
 	styleBold, styleItalic bool
 }
 
@@ -25,20 +24,10 @@ func buildFontContext(doc *parse.Document, fontDict map[string]any) *fontContext
 		enc:      encodingFor(doc, fontDict),
 	}
 	if tu := doc.Resolve(fontDict["ToUnicode"]); tu != nil {
-		var data []byte
-		switch v := tu.(type) {
-		case *parse.Stream:
-			data, _ = doc.StreamData(v)
-		case parse.Ref:
-			if obj, err := doc.GetObject(v.Num); err == nil {
-				if stm, ok := obj.(*parse.Stream); ok {
-					data, _ = doc.StreamData(stm)
-				}
+		if stm, ok := tu.(*parse.Stream); ok {
+			if data, ok := doc.StreamData(stm); ok && len(data) > 0 {
+				fc.toUnicode = parseToUnicodeCMap(data)
 			}
-		}
-		if len(data) > 0 {
-			fc.toUnicode = parseToUnicodeCMap(data)
-			fc.hasCMap = fc.toUnicode != nil && (len(fc.toUnicode.entries) > 0)
 		}
 	}
 	if fc.widths != nil && fc.widths.isCID {
@@ -46,7 +35,6 @@ func buildFontContext(doc *parse.Document, fontDict map[string]any) *fontContext
 			if ff := fontFileData(doc, fontDict); ff != nil {
 				if fb := buildCMapFallbackFromFont(ff); fb != nil && len(fb.entries) > 0 {
 					fc.fallback = fb
-					fc.hasCMap = true
 				}
 			}
 		}
@@ -77,15 +65,11 @@ func fontFileData(doc *parse.Document, fontDict map[string]any) []byte {
 		return nil
 	}
 	for _, key := range []string{"FontFile2", "FontFile3"} {
-		if ref, ok := doc.Resolve(desc[key]).(parse.Ref); ok {
-			if obj, err := doc.GetObject(ref.Num); err == nil {
-				if stm, ok := obj.(*parse.Stream); ok {
-					if data, ok := doc.StreamData(stm); ok {
-						return data
-					}
-					return stm.Raw
-				}
+		if stm, ok := doc.Resolve(desc[key]).(*parse.Stream); ok {
+			if data, ok := doc.StreamData(stm); ok {
+				return data
 			}
+			return stm.Raw
 		}
 	}
 	return nil
@@ -153,6 +137,11 @@ func (fc *fontContext) decodeRaw(doc *parse.Document, raw []byte) (string, bool)
 		}
 		if primary != "" {
 			return primary, true
+		}
+	}
+	if fc.toUnicode == nil && fc.fallback != nil {
+		if fb := fc.fallback.decode(raw); fb != "" {
+			return fb, true
 		}
 	}
 	if fc.widths != nil && fc.widths.isCID {
@@ -252,7 +241,7 @@ func (it *interp) showText(raw []byte) {
 	fc := it.fonts[it.font]
 	var widthTS *float64
 	if fc != nil && fc.widths != nil {
-		w := computeStringWidthTS(raw, fc.widths, it.fontSize, it.charSpace, it.wordSpace)
+		w := computeStringWidthTS(raw, fc.widths, it.fontSize, it.charSpacing, it.wordSpacing)
 		widthTS = &w
 	}
 	combined := matMul(riseAdjusted(it.textMat, it.textRise), it.ctm)
@@ -348,9 +337,9 @@ func (it *interp) showArray(arr []any) {
 	}
 
 	for _, el := range arr {
-		switch docResolve(it.doc, el).(type) {
+		switch v := it.doc.Resolve(el).(type) {
 		case int64, float64:
-			n, _ := operandFloat(docResolve(it.doc, el))
+			n, _ := number(v)
 			displacement := -n / 1000 * it.fontSize
 			if n < -columnGap && curText != "" {
 				flush()
@@ -364,7 +353,7 @@ func (it *interp) showArray(arr []any) {
 				}
 			}
 		case []byte:
-			raw := docResolve(it.doc, el).([]byte)
+			raw := v
 			if len(raw) == 0 {
 				continue
 			}
@@ -373,7 +362,7 @@ func (it *interp) showArray(arr []any) {
 				painted = true
 			}
 			if fc != nil && fc.widths != nil {
-				w := computeStringWidthTS(raw, fc.widths, it.fontSize, it.charSpace, it.wordSpace)
+				w := computeStringWidthTS(raw, fc.widths, it.fontSize, it.charSpacing, it.wordSpacing)
 				widthTS += w
 			} else {
 				widthTS += estimatedAdvanceTS(raw, it.fontSize)
@@ -503,5 +492,3 @@ func utf16BytesToString(raw []byte) string {
 	}
 	return string(sb)
 }
-
-func docResolve(doc *parse.Document, obj any) any { return doc.Resolve(obj) }

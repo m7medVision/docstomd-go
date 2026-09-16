@@ -349,12 +349,12 @@ func (s *slide) relPart(id string) (string, []byte, error) {
 
 func (s *slide) picture(pic *opc.Element, blocks []model.Block) ([]model.Block, error) {
 	var descr string
-	if nv := firstDescendant(pic, nsP, "cNvPr"); nv != nil {
+	if nv := pic.FirstDescendant(nsP, "cNvPr"); nv != nil {
 		v, _ := nv.Attr(nsP, "descr")
 		descr = ooxml.CleanText(v)
 	}
 	source := model.ImageSource{Kind: model.SourceUnavailable}
-	if blip := firstDescendant(pic, opc.NSDrawingML, "blip"); blip != nil {
+	if blip := pic.FirstDescendant(opc.NSDrawingML, "blip"); blip != nil {
 		id, ok := blip.QualifiedAttr(opc.NSRelationships, "embed")
 		if !ok {
 			id, ok = blip.QualifiedAttr(opc.NSRelationships, "link")
@@ -398,13 +398,13 @@ func (s *slide) imageSource(id string) (model.ImageSource, error) {
 }
 
 func (s *slide) graphicFrame(frame *opc.Element, blocks []model.Block) ([]model.Block, error) {
-	if tbl := firstDescendant(frame, opc.NSDrawingML, "tbl"); tbl != nil {
+	if tbl := frame.FirstDescendant(opc.NSDrawingML, "tbl"); tbl != nil {
 		return s.table(tbl, blocks)
 	}
-	if ole := firstDescendant(frame, nsP, "oleObj"); ole != nil {
+	if ole := frame.FirstDescendant(nsP, "oleObj"); ole != nil {
 		return s.oleObject(ole, blocks)
 	}
-	if chart := firstDescendant(frame, opc.NSChart, "chart"); chart != nil {
+	if chart := frame.FirstDescendant(opc.NSChart, "chart"); chart != nil {
 		if id, ok := chart.QualifiedAttr(opc.NSRelationships, "id"); ok {
 			root, err := s.relXML(id)
 			if err != nil {
@@ -415,7 +415,7 @@ func (s *slide) graphicFrame(frame *opc.Element, blocks []model.Block) ([]model.
 			}
 		}
 	}
-	if ids := firstDescendant(frame, opc.NSDiagram, "relIds"); ids != nil {
+	if ids := frame.FirstDescendant(opc.NSDiagram, "relIds"); ids != nil {
 		if id, ok := ids.QualifiedAttr(opc.NSRelationships, "dm"); ok {
 			root, err := s.relXML(id)
 			if err != nil {

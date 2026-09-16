@@ -2,6 +2,7 @@ package extract
 
 import (
 	"strings"
+	"unicode/utf16"
 )
 
 // cmap maps character codes (1 or 2 bytes) to Unicode strings, parsed from a
@@ -12,68 +13,99 @@ type cmap struct {
 }
 
 func parseToUnicodeCMap(data []byte) *cmap {
-	text := string(data)
 	m := &cmap{entries: map[int]string{}}
 	codeLens := map[int]bool{}
-
-	readBlock := func(kind string) {
-		open := "begin" + kind
-		closeWord := "end" + kind
-		for {
-			i := strings.Index(text, open)
-			if i < 0 {
-				return
-			}
-			j := strings.Index(text[i:], closeWord)
-			if j < 0 {
-				return
-			}
-			block := text[i+len(open) : i+j]
-			text = text[i+j+len(closeWord):]
-			toks := strings.FieldsFunc(block, func(r rune) bool {
-				return r == '<' || r == '>' || r == '[' || r == ']' || r == '\n' || r == '\r' || r == '\t' || r == ' '
-			})
-			if kind == "bfchar" {
-				for k := 0; k+1 < len(toks); k += 2 {
-					src := parseHexBytes(toks[k])
-					if len(src) == 0 {
-						continue
-					}
-					codeLens[len(src)] = true
-					m.entries[codeOf(src)] = hexToUnicodeString(toks[k+1])
+	toks := cmapTokens(string(data))
+	for i := 0; i < len(toks); i++ {
+		switch toks[i] {
+		case "beginbfchar":
+			for i++; i+1 < len(toks) && toks[i] != "endbfchar"; i += 2 {
+				src := parseHexBytes(toks[i])
+				if len(src) == 0 {
+					continue
 				}
-			} else {
-				for k := 0; k+2 < len(toks); k += 3 {
-					lo := parseHexBytes(toks[k])
-					hi := parseHexBytes(toks[k+1])
-					if len(lo) == 0 || len(lo) != len(hi) {
-						continue
+				codeLens[len(src)] = true
+				m.entries[codeOf(src)] = hexToUnicodeString(toks[i+1])
+			}
+		case "beginbfrange":
+			for i++; i+2 < len(toks) && toks[i] != "endbfrange"; i += 3 {
+				lo, hi := parseHexBytes(toks[i]), parseHexBytes(toks[i+1])
+				dst := toks[i+2]
+				var arr []string
+				if dst == "[" {
+					j := i + 3
+					for j < len(toks) && toks[j] != "]" {
+						j++
 					}
-					codeLens[len(lo)] = true
-					loV, hiV := codeOf(lo), codeOf(hi)
-					if hiV < loV || hiV-loV > 65535 {
-						continue
+					arr = toks[i+3 : j]
+					i = j - 2
+				}
+				if len(lo) == 0 || len(lo) != len(hi) {
+					continue
+				}
+				codeLens[len(lo)] = true
+				loV, hiV := codeOf(lo), codeOf(hi)
+				if hiV < loV || hiV-loV > 65535 {
+					continue
+				}
+				if arr != nil {
+					for k := 0; k < len(arr) && loV+k <= hiV; k++ {
+						m.entries[loV+k] = hexToUnicodeString(arr[k])
 					}
-					dst := parseHexBytes(toks[k+2])
-					if len(dst) <= 2 {
-						dstCode := codeOf(dst)
-						for c := loV; c <= hiV; c++ {
-							m.entries[c] = string(rune(dstCode + c - loV))
-						}
-					} else {
-						for c := loV; c <= hiV; c++ {
-							m.entries[c] = hexToUnicodeString(toks[k+2])
-						}
-					}
+					continue
+				}
+				// A range destination increments its last character per code.
+				base := []rune(hexToUnicodeString(dst))
+				if len(base) == 0 {
+					continue
+				}
+				for c := loV; c <= hiV; c++ {
+					r := append([]rune(nil), base...)
+					r[len(r)-1] += rune(c - loV)
+					m.entries[c] = string(r)
 				}
 			}
 		}
 	}
-
-	readBlock("bfchar")
-	readBlock("bfrange")
 	m.twoByte = codeLens[2] && !codeLens[1]
 	return m
+}
+
+// cmapTokens splits CMap text into hex strings (without the angle brackets),
+// array brackets and bare words.
+func cmapTokens(text string) []string {
+	var toks []string
+	for i := 0; i < len(text); {
+		switch c := text[i]; {
+		case strings.HasPrefix(text[i:], "<<"):
+			i += 2
+		case c == '>':
+			i++
+		case c == '<':
+			j := strings.IndexByte(text[i:], '>')
+			if j < 0 {
+				return toks
+			}
+			toks = append(toks, text[i+1:i+j])
+			i += j + 1
+		case c == '[' || c == ']':
+			toks = append(toks, text[i:i+1])
+			i++
+		case c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '\f' || c == 0:
+			i++
+		default:
+			j := i
+			for j < len(text) && !strings.ContainsRune("<>[] \n\r\t\f\x00", rune(text[j])) {
+				j++
+			}
+			if j == i {
+				j++
+			}
+			toks = append(toks, text[i:j])
+			i = j
+		}
+	}
+	return toks
 }
 
 func codeOf(b []byte) int {
@@ -107,21 +139,19 @@ func parseHexBytes(s string) []byte {
 
 func hexToUnicodeString(s string) string {
 	b := parseHexBytes(s)
-	var sb strings.Builder
-	for i := 0; i+1 < len(b); i += 2 {
-		r := rune(int(b[i])<<8 | int(b[i+1]))
-		if r == 0 {
-			continue
-		}
-		sb.WriteRune(r)
+	if len(b) == 1 {
+		return string(rune(b[0]))
 	}
-	return sb.String()
+	units := make([]uint16, 0, len(b)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		if u := uint16(b[i])<<8 | uint16(b[i+1]); u != 0 {
+			units = append(units, u)
+		}
+	}
+	return string(utf16.Decode(units))
 }
 
 func (m *cmap) decode(raw []byte) string {
-	if m == nil {
-		return ""
-	}
 	if !m.twoByte {
 		var sb strings.Builder
 		for _, b := range raw {

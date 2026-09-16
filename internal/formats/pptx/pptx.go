@@ -60,14 +60,14 @@ func Parse(data []byte) (*model.Document, error) {
 	}
 	c := &converter{
 		pkg:          pkg,
-		defaultText:  parseLevelStyles(firstDescendant(pres, nsP, "defaultTextStyle")),
+		defaultText:  parseLevelStyles(pres.FirstDescendant(nsP, "defaultTextStyle")),
 		layouts:      map[string]*layout{},
 		masters:      map[string]*master{},
 		slideAnchors: map[string]string{},
 		assetByPart:  map[string]model.AssetID{},
 	}
 	var slides []string
-	if list := firstDescendant(pres, nsP, "sldIdLst"); list != nil {
+	if list := pres.FirstDescendant(nsP, "sldIdLst"); list != nil {
 		for sld := range list.Children(nsP, "sldId") {
 			id, ok := sld.QualifiedAttr(opc.NSRelationships, "id")
 			if !ok {
@@ -143,13 +143,6 @@ func slideShapeTree(root *opc.Element) *opc.Element {
 	return nil
 }
 
-func firstDescendant(e *opc.Element, space, local string) *opc.Element {
-	for d := range e.Descendants(space, local) {
-		return d
-	}
-	return nil
-}
-
 func relatedPart(rels opc.Relationships, relType string) (string, bool) {
 	rel, ok := rels.FirstOfType(relType)
 	if !ok {
@@ -172,7 +165,7 @@ func (c *converter) loadLayout(slideRels opc.Relationships) (*layout, *master, e
 			return nil, nil, err
 		}
 		if root != nil {
-			if spTree := firstDescendant(root, nsP, "spTree"); spTree != nil {
+			if spTree := root.FirstDescendant(nsP, "spTree"); spTree != nil {
 				l.placeholders = collectPlaceholders(spTree)
 			}
 		}
@@ -199,12 +192,12 @@ func (c *converter) loadMaster(path string) error {
 		return err
 	}
 	if root != nil {
-		if styles := firstDescendant(root, nsP, "txStyles"); styles != nil {
+		if styles := root.FirstDescendant(nsP, "txStyles"); styles != nil {
 			m.title = parseLevelStyles(styles.Child(nsP, "titleStyle"))
 			m.body = parseLevelStyles(styles.Child(nsP, "bodyStyle"))
 			m.other = parseLevelStyles(styles.Child(nsP, "otherStyle"))
 		}
-		if spTree := firstDescendant(root, nsP, "spTree"); spTree != nil {
+		if spTree := root.FirstDescendant(nsP, "spTree"); spTree != nil {
 			m.placeholders = collectPlaceholders(spTree)
 		}
 	}

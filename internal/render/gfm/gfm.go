@@ -61,67 +61,33 @@ func numberNotes(doc *model.Document) map[string]int {
 	valid := map[string]*model.Note{}
 	for i := range doc.Notes {
 		n := &doc.Notes[i]
-		if _, seen := valid[n.ID]; !seen && !blank(n.Blocks) {
+		if _, seen := valid[n.ID]; !seen && !model.EmptyBlocks(n.Blocks) {
 			valid[n.ID] = n
 		}
 	}
 	nums := map[string]int{}
-	var walk func(blocks []model.Block)
-	var walkInlines func(inlines []model.Inline)
-	walkInlines = func(inlines []model.Inline) {
+	var visit func(inlines []model.Inline)
+	visit = func(inlines []model.Inline) {
 		for _, in := range inlines {
 			switch in := in.(type) {
 			case model.NoteRef:
 				note, ok := valid[string(in)]
 				if _, numbered := nums[string(in)]; ok && !numbered {
 					nums[string(in)] = len(nums) + 1
-					walk(note.Blocks)
+					walkInlines(note.Blocks, visit)
 				}
 			case model.Link:
-				walkInlines(in.Content)
+				visit(in.Content)
 			}
 		}
 	}
-	walk = func(blocks []model.Block) {
-		for _, b := range blocks {
-			switch b := b.(type) {
-			case model.Paragraph:
-				walkInlines(b)
-			case model.Heading:
-				walkInlines(b.Content)
-			case model.List:
-				for _, it := range b.Items {
-					walk(it.Blocks)
-				}
-			case model.Table:
-				for _, row := range b.Grid() {
-					for _, slot := range row {
-						if !slot.Covered {
-							walk(slot.Cell.Blocks)
-						}
-					}
-				}
-			case model.Quote:
-				walk(b)
-			}
-		}
-	}
-	walk(doc.Blocks)
+	walkInlines(doc.Blocks, visit)
 	for _, n := range doc.Notes {
 		if _, numbered := nums[n.ID]; valid[n.ID] != nil && !numbered {
 			nums[n.ID] = len(nums) + 1
 		}
 	}
 	return nums
-}
-
-func blank(blocks []model.Block) bool {
-	for _, b := range blocks {
-		if p, ok := b.(model.Paragraph); !ok || !model.IsEmpty(p) {
-			return false
-		}
-	}
-	return true
 }
 
 func (r *renderer) blockParts(blocks []model.Block) []string {

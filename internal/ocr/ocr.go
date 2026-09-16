@@ -4,7 +4,7 @@ package ocr
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -95,8 +95,8 @@ func (r *Router) selectPages(mode Mode, routed []int, pageCount int, dryRun bool
 		}
 	case Auto:
 		pages = append([]int{}, routed...)
-		sort.Ints(pages)
-		pages = dedup(pages)
+		slices.Sort(pages)
+		pages = slices.Compact(pages)
 	default:
 		return nil, nil, false
 	}
@@ -177,14 +177,4 @@ func healthy(page PageResult) bool {
 		return false
 	}
 	return !quality.Analyze(page.Markdown)
-}
-
-func dedup(list []int) []int {
-	var out []int
-	for i, v := range list {
-		if i == 0 || list[i-1] != v {
-			out = append(out, v)
-		}
-	}
-	return out
 }

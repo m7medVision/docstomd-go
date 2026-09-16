@@ -36,10 +36,10 @@ type Cell struct {
 	RowSpan int
 }
 
-// IsEmpty reports whether the cell renders nothing; only paragraphs count
+// EmptyBlocks reports whether blocks render nothing; only paragraphs count
 // toward emptiness.
-func (c Cell) IsEmpty() bool {
-	for _, b := range c.Blocks {
+func EmptyBlocks(blocks []Block) bool {
+	for _, b := range blocks {
 		p, ok := b.(Paragraph)
 		if !ok || !IsEmpty(p) {
 			return false
@@ -47,6 +47,9 @@ func (c Cell) IsEmpty() bool {
 	}
 	return true
 }
+
+// IsEmpty reports whether the cell renders nothing.
+func (c Cell) IsEmpty() bool { return EmptyBlocks(c.Blocks) }
 
 // Slot is one grid position: an origin holding the cell, or a position
 // covered by the span of the origin at (OriginRow, OriginCol).

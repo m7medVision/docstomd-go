@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -173,18 +174,8 @@ func orderOCRReasons(list []string) []string {
 	return out
 }
 
-func dedupInts(list []int) []int {
-	out := make([]int, 0, len(list))
-	for i, v := range list {
-		if i == 0 || list[i-1] != v {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-func stripRoutedPages(pages []pdfextract.PageResult, routed []int) []pdfextract.PageResult {
-	routedSet := map[int]bool{}
+func stripRoutedPages(pages []pdfextract.PageResult, routed []int) {
+	routedSet := make(map[int]bool, len(routed))
 	for _, p := range routed {
 		routedSet[p] = true
 	}
@@ -197,7 +188,6 @@ func stripRoutedPages(pages []pdfextract.PageResult, routed []int) []pdfextract.
 			pages[i].Items = nil
 		}
 	}
-	return pages
 }
 
 // ExtractItems dumps positioned extraction items for PDF input — the debug
@@ -275,12 +265,14 @@ func Convert(ctx context.Context, r io.Reader, opts Options) (*Result, error) {
 	}
 	pages := pdfextract.Extract(doc)
 	var allItems []pdfextract.TextItem
+	hasIssues := false
 	for _, page := range pages {
 		allItems = append(allItems, page.Items...)
+		hasIssues = hasIssues || page.HasEncodingIssues
 	}
 	qualityReport := pdfquality.AnalyzeItems(allItems)
 	if detection.Type == pdfdetect.TypeTextBased {
-		pages = stripRoutedPages(pages, detection.PagesNeedingOCR)
+		stripRoutedPages(pages, detection.PagesNeedingOCR)
 	}
 	mdOpts := opts.Markdown
 	if mdOpts == (pdfmarkdown.Options{}) {
@@ -290,8 +282,8 @@ func Convert(ctx context.Context, r io.Reader, opts Options) (*Result, error) {
 	var ocrResult *pdfocr.Result
 	routed := append([]int{}, detection.PagesNeedingOCR...)
 	routed = append(routed, qualityReport.PagesNeedingOCR...)
-	sort.Ints(routed)
-	routed = dedupInts(routed)
+	slices.Sort(routed)
+	routed = slices.Compact(routed)
 	if opts.OCR.Mode != pdfocr.Off && (needsOcr || opts.OCR.Mode == pdfocr.Force || len(routed) > 0 || opts.OCR.DryRun) {
 		provider := opts.OCR.Provider
 		if provider == nil {
@@ -312,12 +304,6 @@ func Convert(ctx context.Context, r io.Reader, opts Options) (*Result, error) {
 				}
 			}
 			md = strings.Join(parts, "\n\n")
-		}
-	}
-	hasIssues := false
-	for _, page := range pages {
-		if page.HasEncodingIssues {
-			hasIssues = true
 		}
 	}
 	reasons := map[int][]string{}

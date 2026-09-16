@@ -112,10 +112,11 @@ func Convert(pages []extract.PageResult, opts Options) (string, Complexity) {
 		furniture = detectFurniture(pages)
 	}
 
-	base := baseFontSize(linesOf(blocks))
-	tiers := headingTiers(linesOf(blocks), base)
+	lines := linesOf(blocks)
+	base := baseFontSize(lines)
+	tiers := headingTiers(lines, base)
 
-	paragraphThreshold := computeParagraphThreshold(linesOf(blocks), base)
+	paragraphThreshold := computeParagraphThreshold(lines, base)
 	var out []string
 	var paragraph []string
 	var prevLine line
@@ -169,7 +170,7 @@ func Convert(pages []extract.PageResult, opts Options) (string, Complexity) {
 		flushCode()
 
 		if opts.DetectHeadings {
-			if level, ok := headingLevel(ln, base, tiers); ok {
+			if level, ok := headingLevel(ln, tiers); ok {
 				flushParagraph()
 				out = append(out, strings.Repeat("#", level)+" "+renderItems(ln.items, opts, base))
 				prevLine = ln
@@ -177,7 +178,7 @@ func Convert(pages []extract.PageResult, opts Options) (string, Complexity) {
 			}
 		}
 		if opts.DetectLists {
-			if marker, rest, ok := listMarker(ln, base); ok {
+			if marker, rest, ok := listMarker(ln); ok {
 				flushParagraph()
 				out = append(out, strings.TrimSpace(marker+" "+renderItems(rest, opts, base)))
 				prevLine = ln
@@ -378,7 +379,7 @@ func headingTiers(lines []line, base float64) []float64 {
 	return tiers
 }
 
-func headingLevel(ln line, base float64, tiers []float64) (int, bool) {
+func headingLevel(ln line, tiers []float64) (int, bool) {
 	if len(ln.items) == 0 {
 		return 0, false
 	}
@@ -401,7 +402,7 @@ func isMonoLine(ln line) bool {
 	return false
 }
 
-func listMarker(ln line, base float64) (string, []extract.TextItem, bool) {
+func listMarker(ln line) (string, []extract.TextItem, bool) {
 	if len(ln.items) == 0 {
 		return "", nil, false
 	}
@@ -518,6 +519,7 @@ func plainLineText(ln line) string {
 func renderItems(items []extract.TextItem, opts Options, base float64) string {
 	var sb strings.Builder
 	prevShift := 0.0
+	var last rune
 	for _, it := range items {
 		text := it.Text
 		if text == "" {
@@ -538,13 +540,13 @@ func renderItems(items []extract.TextItem, opts Options, base float64) string {
 		} else if it.IsItalic {
 			text = "*" + text + "*"
 		}
-		if sb.Len() > 0 && it.BaselineShift == 0 && prevShift == 0 {
-			last := lastChar(sb.String())
+		if it.BaselineShift == 0 && prevShift == 0 {
 			if last != 0 && !unicode.IsSpace(last) && !isJoinPunctMD(firstChar(text)) {
 				sb.WriteByte(' ')
 			}
 		}
 		sb.WriteString(text)
+		last = lastChar(text)
 		prevShift = it.BaselineShift
 	}
 	return sb.String()

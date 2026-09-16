@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
-	"unicode"
 
 	"github.com/m7medVision/docstomd-go/internal/formats/ooxml"
 	"github.com/m7medVision/docstomd-go/internal/model"
@@ -105,7 +104,7 @@ func vmlCheckboxes(root *opc.Element, out map[cellPos][]checkbox) {
 		}
 		caption := ""
 		if tb := shape.Child(nsVML, "textbox"); tb != nil {
-			caption = strings.TrimSpace(collapseSpace(ooxml.CleanText(tb.Text())))
+			caption = strings.Join(strings.Fields(ooxml.CleanText(tb.Text())), " ")
 		}
 		out[at] = append(out[at], checkbox{checked, caption})
 	}
@@ -126,21 +125,4 @@ func anchorCell(anchor string) (cellPos, bool) {
 		n[i] = v
 	}
 	return cellPos{int(n[2]), int(n[0])}, true
-}
-
-func collapseSpace(text string) string {
-	var sb strings.Builder
-	space := false
-	for _, r := range text {
-		if unicode.IsSpace(r) {
-			if !space {
-				sb.WriteByte(' ')
-			}
-			space = true
-			continue
-		}
-		sb.WriteRune(r)
-		space = false
-	}
-	return sb.String()
 }

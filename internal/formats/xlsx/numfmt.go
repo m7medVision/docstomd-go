@@ -308,13 +308,9 @@ func selectSection(sections []section, v float64) (section, float64, bool, bool)
 	}
 	idx := 0
 	switch {
-	case len(sections) == 1:
-	case len(sections) == 2 && v < 0:
+	case len(sections) >= 2 && v < 0:
 		idx = 1
-	case len(sections) == 2:
-	case v < 0:
-		idx = 1
-	case v == 0:
+	case len(sections) >= 3 && v == 0:
 		idx = 2
 	}
 	if idx == 1 {

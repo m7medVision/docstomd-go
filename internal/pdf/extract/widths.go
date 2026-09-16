@@ -1,6 +1,7 @@
 package extract
 
 import (
+	"math"
 	"sort"
 	"strings"
 
@@ -59,7 +60,7 @@ func parseSimpleWidths(doc *parse.Document, fontDict map[string]any) *widthInfo 
 	unitsScale := 0.001
 	if fm, ok := doc.Resolve(fontDict["FontMatrix"]).([]any); ok && len(fm) > 0 {
 		if m, ok := number(doc.Resolve(fm[0])); ok && m != 0 {
-			unitsScale = abs(m)
+			unitsScale = math.Abs(m)
 		}
 	}
 	return &widthInfo{widths: widths, defaultWidth: 500, spaceWidth: spaceWidth, isCID: false, unitsScale: unitsScale}
@@ -202,21 +203,14 @@ func cidWidth(info *widthInfo, code int) uint16 {
 	return info.defaultWidth
 }
 
-func abs(f float64) float64 {
-	if f < 0 {
-		return -f
-	}
-	return f
-}
-
 func base14TableFor(baseFont string) []charWidth {
 	name := baseFont
 	if idx := strings.IndexByte(name, '+'); idx == 6 {
 		name = name[7:]
 	}
 	lower := toLower(name)
-	bold := contains(lower, "bold")
-	italic := contains(lower, "italic") || contains(lower, "oblique")
+	bold := strings.Contains(lower, "bold")
+	italic := strings.Contains(lower, "italic") || strings.Contains(lower, "oblique")
 	switch lower {
 	case "zapfdingbats", "dingbats", "itczapfdingbats", "zapfdingbatsitc":
 		return base14ZAPFDINGBATS
@@ -224,9 +218,9 @@ func base14TableFor(baseFont string) []charWidth {
 		return base14SYMBOL
 	}
 	switch {
-	case contains(lower, "courier"):
+	case strings.Contains(lower, "courier"):
 		return base14COURIER
-	case contains(lower, "helvetica") || contains(lower, "arial"):
+	case strings.Contains(lower, "helvetica") || strings.Contains(lower, "arial"):
 		if bold && italic {
 			return base14HELVETICA_BOLDOBLIQUE
 		}
@@ -237,7 +231,7 @@ func base14TableFor(baseFont string) []charWidth {
 			return base14HELVETICA_OBLIQUE
 		}
 		return base14HELVETICA
-	case contains(lower, "times"):
+	case strings.Contains(lower, "times"):
 		if bold && italic {
 			return base14TIMES_BOLDITALIC
 		}
@@ -292,8 +286,4 @@ func toLower(s string) string {
 		}
 	}
 	return string(b)
-}
-
-func contains(s, sub string) bool {
-	return strings.Contains(s, sub)
 }

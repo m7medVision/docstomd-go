@@ -104,16 +104,6 @@ func operandBytes(obj any) ([]byte, bool) {
 	return nil, false
 }
 
-func operandFloat(obj any) (float64, bool) {
-	switch v := obj.(type) {
-	case int64:
-		return float64(v), true
-	case float64:
-		return v, true
-	}
-	return 0, false
-}
-
 type mat [6]float64
 
 func matMul(a, b mat) mat {
@@ -264,16 +254,16 @@ func expandLigatures(text string) string {
 
 func isBoldFontName(name string) bool {
 	l := toLower(name)
-	return contains(l, "bold") || contains(l, "-bd") || contains(l, "_bd") ||
-		contains(l, "black") || contains(l, "heavy") || contains(l, "demibold") ||
-		contains(l, "semibold") || contains(l, "demi-bold") || contains(l, "semi-bold") ||
-		contains(l, "extrabold") || contains(l, "ultrabold") ||
-		(contains(l, "medium") && !contains(l, "mediumitalic")) ||
-		(contains(l, "-medi") && !contains(l, "mediumital"))
+	return strings.Contains(l, "bold") || strings.Contains(l, "-bd") || strings.Contains(l, "_bd") ||
+		strings.Contains(l, "black") || strings.Contains(l, "heavy") || strings.Contains(l, "demibold") ||
+		strings.Contains(l, "semibold") || strings.Contains(l, "demi-bold") || strings.Contains(l, "semi-bold") ||
+		strings.Contains(l, "extrabold") || strings.Contains(l, "ultrabold") ||
+		(strings.Contains(l, "medium") && !strings.Contains(l, "mediumitalic")) ||
+		(strings.Contains(l, "-medi") && !strings.Contains(l, "mediumital"))
 }
 
 func isItalicFontName(name string) bool {
 	l := toLower(name)
-	return contains(l, "italic") || contains(l, "oblique") || contains(l, "-it") ||
-		contains(l, "_it") || contains(l, "slant") || contains(l, "inclined") || contains(l, "kursiv")
+	return strings.Contains(l, "italic") || strings.Contains(l, "oblique") || strings.Contains(l, "-it") ||
+		strings.Contains(l, "_it") || strings.Contains(l, "slant") || strings.Contains(l, "inclined") || strings.Contains(l, "kursiv")
 }

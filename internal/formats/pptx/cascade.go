@@ -203,7 +203,7 @@ type placeholder struct {
 // placeholderOf reads the p:ph below a shape, nil when it is not a
 // placeholder; an absent type means body.
 func placeholderOf(sp *opc.Element) *placeholder {
-	ph := firstDescendant(sp, nsP, "ph")
+	ph := sp.FirstDescendant(nsP, "ph")
 	if ph == nil {
 		return nil
 	}

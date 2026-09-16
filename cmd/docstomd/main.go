@@ -108,7 +108,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		if err != nil {
 			return reportError(stdout, stderr, *jsonOut, err)
 		}
-		return writeResult(stdout, stderr, true, items)
+		return writeJSON(stdout, stderr, items)
 	}
 	opts := docstomd.Options{FileName: files[0], OCR: docstomd.OCROptions{
 		Provider:       docstomd.NewMistralProvider(docstomd.MistralOptions{Model: *ocrModel}),
@@ -129,7 +129,11 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if err != nil {
 		return reportError(stdout, stderr, *jsonOut, err)
 	}
-	return writeResult(stdout, stderr, *jsonOut, result)
+	if *jsonOut {
+		return writeJSON(stdout, stderr, result)
+	}
+	fmt.Fprint(stdout, result.Markdown)
+	return exitOK
 }
 
 func runDetect(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -162,22 +166,17 @@ func runDetect(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	if err != nil {
 		return reportError(stdout, stderr, *jsonOut, err)
 	}
-	return writeResult(stdout, stderr, *jsonOut, detection)
+	if *jsonOut {
+		return writeJSON(stdout, stderr, detection)
+	}
+	fmt.Fprintln(stdout, detection.Format)
+	return exitOK
 }
 
-func writeResult(stdout, stderr io.Writer, jsonOut bool, v any) int {
-	if jsonOut {
-		if err := json.NewEncoder(stdout).Encode(v); err != nil {
-			fmt.Fprintf(stderr, "docstomd: encoding result: %v\n", err)
-			return exitError
-		}
-		return exitOK
-	}
-	switch res := v.(type) {
-	case *docstomd.Result:
-		fmt.Fprint(stdout, res.Markdown)
-	case *docstomd.Detection:
-		fmt.Fprintln(stdout, res.Format)
+func writeJSON(stdout, stderr io.Writer, v any) int {
+	if err := json.NewEncoder(stdout).Encode(v); err != nil {
+		fmt.Fprintf(stderr, "docstomd: encoding result: %v\n", err)
+		return exitError
 	}
 	return exitOK
 }

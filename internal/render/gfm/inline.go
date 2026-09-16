@@ -124,7 +124,6 @@ func (r *renderer) inlines(inlines []model.Inline, ctx context, inLabel bool) st
 }
 
 func (r *renderer) link(out *strings.Builder, link model.Link, ctx context) {
-	label := r.inlines(link.Content, ctx, true)
 	url := link.Target.Ref
 	if link.Target.Kind == model.TargetAnchor {
 		fragment, ok := r.anchors.fragment(link.Target.Ref)
@@ -134,6 +133,7 @@ func (r *renderer) link(out *strings.Builder, link model.Link, ctx context) {
 		}
 		url = "#" + fragment
 	}
+	label := r.inlines(link.Content, ctx, true)
 	if strings.TrimSpace(label) == "" {
 		if link.Target.Kind == model.TargetAnchor {
 			return

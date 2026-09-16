@@ -1,6 +1,7 @@
 package docx
 
 import (
+	"errors"
 	"log/slog"
 	"strings"
 
@@ -557,19 +558,19 @@ func (w *inlineWalker) drawing(e *opc.Element) error {
 	}
 
 	var descr string
-	if docPr := firstDescendant(e, nsWP, "docPr"); docPr != nil {
+	if docPr := e.FirstDescendant(nsWP, "docPr"); docPr != nil {
 		d, _ := docPr.Attr(nsWP, "descr")
 		descr = ooxml.CleanText(d)
 	}
 
-	if chart := firstDescendant(e, nsChart, "chart"); chart != nil {
+	if chart := e.FirstDescendant(nsChart, "chart"); chart != nil {
 		if id, ok := chart.QualifiedAttr(nsR, "id"); ok {
 			blocks, err := w.c.relXMLBlocks(id, ooxml.ChartBlocks)
 			w.pushBlocks(blocks)
 			return err
 		}
 	}
-	if relIDs := firstDescendant(e, nsDgm, "relIds"); relIDs != nil {
+	if relIDs := e.FirstDescendant(nsDgm, "relIds"); relIDs != nil {
 		if id, ok := relIDs.QualifiedAttr(nsR, "dm"); ok {
 			blocks, err := w.c.relXMLBlocks(id, ooxml.DiagramBlocks)
 			w.pushBlocks(blocks)
@@ -578,7 +579,7 @@ func (w *inlineWalker) drawing(e *opc.Element) error {
 	}
 
 	// An OLE object wins over the VML preview image Word places next to it.
-	if ole := firstDescendant(e, nsOVML, "OLEObject"); ole != nil {
+	if ole := e.FirstDescendant(nsOVML, "OLEObject"); ole != nil {
 		alt := descr
 		if strings.TrimSpace(alt) == "" {
 			progID, ok := ole.Attr(nsOVML, "ProgID")
@@ -606,13 +607,13 @@ func (w *inlineWalker) drawing(e *opc.Element) error {
 	}
 
 	relID, hasImage := "", false
-	if blip := firstDescendant(e, nsA, "blip"); blip != nil {
+	if blip := e.FirstDescendant(nsA, "blip"); blip != nil {
 		if relID, hasImage = blip.QualifiedAttr(nsR, "embed"); !hasImage {
 			relID, hasImage = blip.QualifiedAttr(nsR, "link")
 		}
 	}
 	if !hasImage {
-		if data := firstDescendant(e, nsVML, "imagedata"); data != nil {
+		if data := e.FirstDescendant(nsVML, "imagedata"); data != nil {
 			relID, hasImage = data.QualifiedAttr(nsR, "id")
 		}
 	}
@@ -665,7 +666,8 @@ func (c *converter) relXMLBlocks(id string, convert func(*opc.Element) []model.B
 	}
 	root, err := opc.ParseXML(data)
 	if err != nil {
-		if isFatal(err) {
+		var limit *model.LimitError
+		if errors.As(err, &limit) {
 			return nil, err
 		}
 		slog.Warn("skipping corrupt part", "part", part, "err", err)
