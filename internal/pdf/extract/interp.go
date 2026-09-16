@@ -3,6 +3,9 @@ package extract
 import (
 	"math"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/m7medVision/docstomd-go/internal/pdf/parse"
 )
@@ -249,7 +252,163 @@ func expandLigatures(text string) string {
 		}
 		text = sb.String()
 	}
-	return text
+	hadPresentationForms := false
+	for _, c := range text {
+		if isArabicPresentationForm(c) {
+			hadPresentationForms = true
+			break
+		}
+	}
+	if hadPresentationForms {
+		text = norm.NFKC.String(text)
+	}
+	var sb strings.Builder
+	sb.Grow(len(text))
+	for _, c := range text {
+		switch {
+		case c >= '\u2000' && c <= '\u200A':
+			sb.WriteByte(' ')
+		case c == '\u00AD' || c == '\u200B' || c == '\uFEFF' || c == '\u200C' || c == '\u200D' || c == '\u2060':
+		case c == '\uFB00':
+			sb.WriteString("ff")
+		case c == '\uFB01':
+			sb.WriteString("fi")
+		case c == '\uFB02':
+			sb.WriteString("fl")
+		case c == '\uFB03':
+			sb.WriteString("ffi")
+		case c == '\uFB04':
+			sb.WriteString("ffl")
+		case c == '\uFB05' || c == '\uFB06':
+			sb.WriteString("st")
+		default:
+			sb.WriteRune(c)
+		}
+	}
+	result := sb.String()
+	if hadPresentationForms {
+		result = reverseVisualArabic(result)
+	}
+	return result
+}
+
+func isArabicPresentationForm(c rune) bool {
+	return c >= 0xFB50 && c <= 0xFDFF || c >= 0xFE70 && c <= 0xFEFE
+}
+
+func isArabicIndicDigit(c rune) bool {
+	return c >= 0x0660 && c <= 0x0669 || c >= 0x06F0 && c <= 0x06F9
+}
+
+func isArabicNumericSeparator(c rune) bool {
+	return c == 0x066B || c == 0x066C
+}
+
+func isForwardAlnum(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || isArabicIndicDigit(c)
+}
+
+func isAdjacentToAlnum(chars []rune, idx int) bool {
+	return idx > 0 && isForwardAlnum(chars[idx-1]) ||
+		idx+1 < len(chars) && isForwardAlnum(chars[idx+1])
+}
+
+func isASCIIPunct(c rune) bool {
+	return c >= '!' && c <= '/' || c >= ':' && c <= '@' || c >= '[' && c <= '`' || c >= '{' && c <= '~'
+}
+
+func reverseVisualArabic(text string) string {
+	hasLTR := false
+	for _, c := range text {
+		if isForwardAlnum(c) {
+			hasLTR = true
+			break
+		}
+	}
+	if !hasLTR {
+		return reverseKeepingMarks(text)
+	}
+	chars := []rune(text)
+	isLRTPunct := func(i int) bool {
+		return (isASCIIPunct(chars[i]) || isArabicNumericSeparator(chars[i])) && isAdjacentToAlnum(chars, i)
+	}
+	type run struct {
+		ltr     bool
+		content []rune
+	}
+	var runs []run
+	i := 0
+	for i < len(chars) {
+		ltr := isForwardAlnum(chars[i]) || isLRTPunct(i)
+		var content []rune
+		for i < len(chars) {
+			cLTR := isForwardAlnum(chars[i]) || isLRTPunct(i)
+			if cLTR != ltr {
+				break
+			}
+			content = append(content, chars[i])
+			i++
+		}
+		runs = append(runs, run{ltr: ltr, content: content})
+	}
+	for a, b := 0, len(runs)-1; a < b; a, b = a+1, b-1 {
+		runs[a], runs[b] = runs[b], runs[a]
+	}
+	var sb strings.Builder
+	sb.Grow(len(text))
+	for _, r := range runs {
+		if r.ltr {
+			sb.WriteString(string(r.content))
+		} else {
+			sb.WriteString(reverseKeepingMarks(string(r.content)))
+		}
+	}
+	return sb.String()
+}
+
+func reverseKeepingMarks(text string) string {
+	chars := []rune(text)
+	var sb strings.Builder
+	sb.Grow(len(text))
+	end := len(chars)
+	for i := len(chars) - 1; i >= 0; i-- {
+		if i == 0 || !isCombiningMark(chars[i]) {
+			for _, c := range chars[i:end] {
+				sb.WriteRune(mirrorBracket(c))
+			}
+			end = i
+		}
+	}
+	return sb.String()
+}
+
+func mirrorBracket(c rune) rune {
+	switch c {
+	case '(':
+		return ')'
+	case ')':
+		return '('
+	case '[':
+		return ']'
+	case ']':
+		return '['
+	case '{':
+		return '}'
+	case '}':
+		return '{'
+	case '<':
+		return '>'
+	case '>':
+		return '<'
+	}
+	return c
+}
+
+func isCombiningMark(c rune) bool {
+	if unicode.In(c, unicode.Mn, unicode.Mc, unicode.Me) {
+		return true
+	}
+	return norm.NFKC.PropertiesString(string(c)).CCC() != 0
 }
 
 func isBoldFontName(name string) bool {
