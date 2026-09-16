@@ -16,6 +16,8 @@ import (
 	"github.com/m7medVision/docstomd-go"
 )
 
+var version = "dev"
+
 const (
 	exitOK          = 0
 	exitUsage       = 1
@@ -29,6 +31,7 @@ const usageText = `usage: docstomd <command> [flags] <file>
 commands:
   convert   convert a document to Markdown
   detect    report the detected document format
+  version   print the version
 
 common flags:
   --json    emit machine-readable JSON
@@ -65,6 +68,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runDetect(ctx, rest, stdout, stderr)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usageText)
+		return exitOK
+	case "version", "--version":
+		fmt.Fprintln(stdout, version)
 		return exitOK
 	default:
 		fmt.Fprintf(stderr, "docstomd: unknown command %q\n\n%s", cmd, usageText)
