@@ -325,7 +325,7 @@ func fillCells(region *Region, items []extract.TextItem, used map[*extract.TextI
 		}
 		cx, cy := it.X+it.Width/2, it.Y+it.Height/2
 		col := -1
-		for c := 0; c < cols; c++ {
+		for c := range cols {
 			if cx >= region.ColX[c] && cx < region.ColX[c+1] {
 				col = c
 				break
@@ -514,12 +514,13 @@ func extendDataRows(region *Region, items []extract.TextItem) {
 		}
 		bands = append(bands, []extract.TextItem{it})
 	}
+	colWidth := (region.X1 - region.X0) / float64(cols)
 	lastRowTop := 0.0
 	for _, band := range bands {
 		distinct := map[int]bool{}
 		for _, it := range band {
 			cx := it.X + it.Width/2
-			for c := 0; c < cols; c++ {
+			for c := range cols {
 				if cx >= region.ColX[c] && cx < region.ColX[c+1] {
 					distinct[c] = true
 				}
@@ -528,10 +529,11 @@ func extendDataRows(region *Region, items []extract.TextItem) {
 		if len(distinct) < 2 || len(band) > cols*2+2 {
 			break
 		}
-		colWidth := (region.X1 - region.X0) / float64(cols)
 		tooWide := false
 		for _, it := range band {
-			if it.Width > colWidth*1.6 {
+			// Only an item starting outside column 0 trips the width
+			// guard: a long left-column label keeps its band in the grid.
+			if it.Width > colWidth*1.6 && it.X >= region.ColX[1] {
 				tooWide = true
 				break
 			}
