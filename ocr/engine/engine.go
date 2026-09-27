@@ -144,7 +144,11 @@ func (e *Engine) Recognize(img image.Image) ([]Line, error) {
 	}
 	var lines []Line
 	for i, q := range boxes {
-		text := strings.TrimSpace(texts[i])
+		text := texts[i]
+		if e.Manifest.OutputOrder == "visual" {
+			text = visualToLogical(text)
+		}
+		text = strings.TrimSpace(normalize(text))
 		if text == "" || scores[i] < defaultDropScore {
 			continue
 		}

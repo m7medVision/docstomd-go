@@ -332,6 +332,180 @@
           ]
         }
       }
+    },
+    {
+      "id": "pp-ocrv5-arabic-mobile",
+      "family": "pp-ocrv5",
+      "description": "PP-OCRv5 Arabic-script mobile recognizer (PaddlePaddle): Arabic, Persian, Urdu, Uyghur, Pashto, Kurdish, Sindhi, plus Latin letters and digits",
+      "languages": [
+        "ar",
+        "fa",
+        "ur",
+        "ug",
+        "ps",
+        "ku",
+        "sd",
+        "en"
+      ],
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "path": "det/inference.onnx",
+          "source": "hf://PaddlePaddle/PP-OCRv5_mobile_det_onnx@e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.onnx",
+          "sha256": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d",
+          "size": 4826518
+        },
+        {
+          "path": "cls/inference.onnx",
+          "source": "hf://PaddlePaddle/PP-LCNet_x1_0_textline_ori_onnx@7fdcf3cf7061163eda7183b224aa334bd33068f7/inference.onnx",
+          "sha256": "38aa97cd4be591e0ad304e659f07ba30d946f27a63315433f6659c69c8778345",
+          "size": 6777816
+        },
+        {
+          "path": "rec/inference.onnx",
+          "source": "hf://PaddlePaddle/arabic_PP-OCRv5_mobile_rec_onnx@14aaedcd75825982689ecf5cd64ab33ee083215a/inference.onnx",
+          "sha256": "799113ebf267fbe742deb99eb36e8d42c9ddc5291ceacf92add41b4d52a59110",
+          "size": 7998947
+        },
+        {
+          "path": "rec/inference.yml",
+          "source": "hf://PaddlePaddle/arabic_PP-OCRv5_mobile_rec_onnx@14aaedcd75825982689ecf5cd64ab33ee083215a/inference.yml",
+          "sha256": "21368419e6c016c31db55d316d59e11c128e1913e6e6fe10287084710043d3a6",
+          "size": 6165
+        }
+      ],
+      "manifest": {
+        "schema": 1,
+        "id": "pp-ocrv5-arabic-mobile",
+        "family": "pp-ocrv5",
+        "languages": [
+          "ar",
+          "fa",
+          "ur",
+          "ug",
+          "ps",
+          "ku",
+          "sd",
+          "en"
+        ],
+        "license": "Apache-2.0",
+        "output_order": "visual",
+        "detector": {
+          "model": "det/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "limit_side": 960,
+          "limit_type": "max",
+          "multiple": 32,
+          "buckets": [
+            [
+              640,
+              640
+            ],
+            [
+              960,
+              960
+            ],
+            [
+              736,
+              960
+            ],
+            [
+              960,
+              736
+            ]
+          ],
+          "postprocess": {
+            "type": "db",
+            "thresh": 0.3,
+            "box_thresh": 0.6,
+            "unclip_ratio": 1.5,
+            "max_candidates": 1000
+          }
+        },
+        "classifier": {
+          "model": "cls/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "height": 80,
+          "width": 160,
+          "angles": [
+            0,
+            180
+          ],
+          "threshold": 0.9,
+          "batches": [
+            1,
+            8
+          ]
+        },
+        "recognizer": {
+          "model": "rec/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.5,
+              0.5,
+              0.5
+            ],
+            "std": [
+              0.5,
+              0.5,
+              0.5
+            ]
+          },
+          "height": 48,
+          "min_width": 320,
+          "max_width": 3200,
+          "widths": [
+            320,
+            480,
+            640,
+            800,
+            960,
+            1280,
+            1600
+          ],
+          "charset": {
+            "yaml": "rec/inference.yml",
+            "key": "character_dict"
+          },
+          "decoder": {
+            "type": "ctc",
+            "blank": 0,
+            "append_space": true
+          },
+          "batches": [
+            1,
+            8
+          ]
+        }
+      }
     }
   ]
 }

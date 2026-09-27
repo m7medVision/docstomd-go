@@ -149,3 +149,24 @@ func TestPaddingKeepsText(t *testing.T) {
 		t.Errorf("exact-shape run found %d lines, want %d: %q", len(exact), len(want), exact)
 	}
 }
+
+// TestArabicLogicalOrder: the Arabic recognizer reads right-to-left lines
+// in visual order; the engine returns them in logical order with digits and
+// Latin words intact.
+func TestArabicLogicalOrder(t *testing.T) {
+	eng := load(t, "pp-ocrv5-arabic-mobile")
+	if eng.Manifest.OutputOrder != "visual" {
+		t.Fatalf("output_order = %q, want visual", eng.Manifest.OutputOrder)
+	}
+	ocrtest.CompareLines(t, recognize(t, eng, "arabic-mixed.pdf"), ocrtest.Golden(t, "arabic-mixed"))
+}
+
+// TestLogicalModelsUntouched: models declaring logical order are not
+// reordered.
+func TestLogicalModelsUntouched(t *testing.T) {
+	eng := load(t, "pp-ocrv5-mobile")
+	if eng.Manifest.OutputOrder == "visual" {
+		t.Fatal("pp-ocrv5-mobile declares visual order")
+	}
+	ocrtest.CompareLines(t, recognize(t, eng, "field-report-flate.pdf"), ocrtest.Golden(t, "field-report"))
+}

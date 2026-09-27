@@ -1,8 +1,9 @@
 // Command ocrfixtures regenerates the scanned-page fixtures in testdata/ocr:
 // it typesets project-authored text into a born-digital PDF, renders it with
 // pdftoppm (poppler) and wraps the image into image-only PDFs, one per image
-// encoding (JPEG, Flate, and CCITT G4 through ImageMagick), plus a page whose
-// text is drawn as vector outlines (through Ghostscript). Run from the
+// encoding (JPEG, Flate, and CCITT G4 through ImageMagick), a page whose text
+// is drawn as vector outlines (through Ghostscript) and a shaped Arabic page
+// (through pango-view). Run from the
 // repository root:
 //
 //	go run ./tools/ocrfixtures
@@ -83,6 +84,85 @@ func main() {
 		}
 		write(filepath.Join(out, fx.name+".txt"), []byte(strings.Join(text, "\n")+"\n"))
 	}
+	if err := arabic(out); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// arabicLines mix Arabic with digits and a Latin word, in logical order.
+var arabicLines = []string{
+	"تقرير الربع الثالث",
+	"",
+	"بلغت المبيعات 1250 دينارا في عام 2024",
+	"تم تحديث نظام SAP يوم الأحد",
+	"رقم الطلب: 7781",
+}
+
+// arabic renders shaped Arabic with pango-view (DejaVu Sans; PP-OCRv5 Arabic drops digits and Latin words set in Noto Naskh or Noto Sans Arabic) and wraps
+// it as a Flate image page.
+func arabic(out string) error {
+	const dpi = 200
+	dir, err := os.MkdirTemp("", "ocrfixtures")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	txt := filepath.Join(dir, "ar.txt")
+	if err := os.WriteFile(txt, []byte(strings.Join(arabicLines, "\n")+"\n"), 0o644); err != nil {
+		return err
+	}
+	raw, png := filepath.Join(dir, "raw.png"), filepath.Join(dir, "page.png")
+	steps := [][]string{
+		{"pango-view", "-q", "--font", "DejaVu Sans 12", "--dpi", fmt.Sprint(dpi), "--rtl", "--hinting", "none", "--background", "white", "--foreground", "black", "--output", raw, txt},
+		{"magick", raw, "-trim", "-bordercolor", "white", "-border", "80", "-colorspace", "Gray", "-depth", "8", png},
+	}
+	for _, step := range steps {
+		if b, err := exec.Command(step[0], step[1:]...).CombinedOutput(); err != nil {
+			return fmt.Errorf("%s: %v: %s", step[0], err, b)
+		}
+	}
+	img, err := readGray(png)
+	if err != nil {
+		return err
+	}
+	b := img.Bounds()
+	fx := fixture{name: "arabic-mixed", w: float64(b.Dx()) * 72 / dpi, h: float64(b.Dy()) * 72 / dpi}
+	var flate bytes.Buffer
+	zw, _ := zlib.NewWriterLevel(&flate, zlib.BestCompression)
+	if _, err := zw.Write(img.Pix); err != nil {
+		return err
+	}
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	write(filepath.Join(out, "arabic-mixed.pdf"), imagePDF(fx, b, "/FlateDecode", flate.Bytes()))
+	var lines []string
+	for _, l := range arabicLines {
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+	write(filepath.Join(out, "arabic-mixed.txt"), []byte(strings.Join(lines, "\n")+"\n"))
+	return nil
+}
+
+func readGray(path string) (*image.Gray, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	decoded, err := png.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+	gray := image.NewGray(decoded.Bounds())
+	for y := gray.Rect.Min.Y; y < gray.Rect.Max.Y; y++ {
+		for x := gray.Rect.Min.X; x < gray.Rect.Max.X; x++ {
+			gray.Set(x, y, decoded.At(x, y))
+		}
+	}
+	return gray, nil
 }
 
 func write(path string, data []byte) {
