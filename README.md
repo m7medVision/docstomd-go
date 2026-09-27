@@ -379,7 +379,7 @@ download leaves no partial model.
 |---|---|---|---|
 | `pp-ocrv5-mobile` (default) | Chinese, English, Japanese | 27 MB | Apache-2.0 |
 | `pp-ocrv5-server` | Chinese, English, Japanese | 171 MB | Apache-2.0 |
-| `pp-ocrv5-arabic-mobile` | Arabic, Persian, Urdu, Uyghur, Pashto, Kurdish, Sindhi (+ Latin, digits) | 20 MB | Apache-2.0 |
+| `pp-ocrv5-arabic-mobile` | Arabic, Persian, Urdu, Uyghur, Pashto, Kurdish, Sindhi (+ Latin, digits) | 19 MB | Apache-2.0 |
 
 Right-to-left lines come out in logical (reading) order: models whose
 manifest declares `output_order: visual` are reordered with the Unicode
