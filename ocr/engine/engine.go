@@ -197,9 +197,8 @@ func (e *Engine) detect(r *raster) ([]quad, error) {
 // orient turns upside-down crops upright.
 func (e *Engine) orient(crops []*raster) error {
 	c := e.Manifest.Classifier
-	batch := max(1, c.Batch)
-	for start := 0; start < len(crops); start += batch {
-		n := min(batch, len(crops)-start)
+	for start := 0; start < len(crops); {
+		n := batchSize(c.Batches, len(crops)-start)
 		plane := 3 * c.Width * c.Height
 		input := make([]float32, n*plane)
 		for i := range n {
@@ -224,8 +223,20 @@ func (e *Engine) orient(crops []*raster) error {
 				crops[start+i] = crops[start+i].rotate180()
 			}
 		}
+		start += n
 	}
 	return nil
+}
+
+// batchSize is the largest bucket no bigger than remaining, or 1.
+func batchSize(buckets []int, remaining int) int {
+	best := 1
+	for _, b := range buckets {
+		if b <= remaining && b > best {
+			best = b
+		}
+	}
+	return best
 }
 
 // read recognizes crops in batches of similar aspect ratio.
@@ -240,12 +251,8 @@ func (e *Engine) read(crops []*raster) ([]string, []float64, error) {
 	sort.SliceStable(order, func(a, b int) bool { return ratio(order[a]) < ratio(order[b]) })
 	texts := make([]string, len(crops))
 	scores := make([]float64, len(crops))
-	batch := max(1, rc.Batch)
 	for start := 0; start < len(order); {
-		n := 1
-		if len(order)-start >= batch {
-			n = batch
-		}
+		n := batchSize(rc.Batches, len(order)-start)
 		idx := order[start : start+n]
 		start += n
 		maxRatio := 0.0

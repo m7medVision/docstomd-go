@@ -85,7 +85,9 @@ type Classifier struct {
 	// Angles lists the rotation, in degrees, each class stands for.
 	Angles    []int   `json:"angles"`
 	Threshold float64 `json:"threshold"`
-	Batch     int     `json:"batch,omitempty"`
+	// Batches are batch-size buckets; lines are grouped greedily into the
+	// largest bucket that fits (default [1]).
+	Batches []int `json:"batches,omitempty"`
 }
 
 // Recognizer reads the text of one line image.
@@ -98,8 +100,10 @@ type Recognizer struct {
 	MaxWidth int `json:"max_width,omitempty"`
 	// Widths are ascending width buckets compiled once per session; wider
 	// lines use the next multiple of the first bucket.
-	Widths  []int   `json:"widths,omitempty"`
-	Batch   int     `json:"batch,omitempty"`
+	Widths []int `json:"widths,omitempty"`
+	// Batches are batch-size buckets; lines of similar width are grouped
+	// greedily into the largest bucket that fits (default [1]).
+	Batches []int   `json:"batches,omitempty"`
 	Charset Charset `json:"charset"`
 	Decoder Decoder `json:"decoder"`
 }
@@ -189,6 +193,17 @@ func (m *Manifest) Validate() error {
 	}
 	if !slices.IsSorted(m.Recognizer.Widths) {
 		return fmt.Errorf("recognizer widths must be ascending")
+	}
+	batches := [][]int{m.Recognizer.Batches}
+	if m.Classifier != nil {
+		batches = append(batches, m.Classifier.Batches)
+	}
+	for _, b := range batches {
+		for _, n := range b {
+			if n <= 0 {
+				return fmt.Errorf("batch sizes must be positive")
+			}
+		}
 	}
 	return nil
 }

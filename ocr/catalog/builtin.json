@@ -118,7 +118,10 @@
             180
           ],
           "threshold": 0.9,
-          "batch": 8
+          "batches": [
+            1,
+            8
+          ]
         },
         "recognizer": {
           "model": "rec/inference.onnx",
@@ -148,7 +151,6 @@
             1280,
             1600
           ],
-          "batch": 8,
           "charset": {
             "yaml": "rec/inference.yml",
             "key": "character_dict"
@@ -157,7 +159,11 @@
             "type": "ctc",
             "blank": 0,
             "append_space": true
-          }
+          },
+          "batches": [
+            1,
+            8
+          ]
         }
       }
     },
@@ -278,7 +284,10 @@
             180
           ],
           "threshold": 0.9,
-          "batch": 8
+          "batches": [
+            1,
+            8
+          ]
         },
         "recognizer": {
           "model": "rec/inference.onnx",
@@ -308,7 +317,6 @@
             1280,
             1600
           ],
-          "batch": 8,
           "charset": {
             "yaml": "rec/inference.yml",
             "key": "character_dict"
@@ -317,7 +325,11 @@
             "type": "ctc",
             "blank": 0,
             "append_space": true
-          }
+          },
+          "batches": [
+            1,
+            8
+          ]
         }
       }
     }

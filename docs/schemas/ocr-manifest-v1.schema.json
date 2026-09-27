@@ -47,7 +47,7 @@
         "width": {"type": "integer", "minimum": 1},
         "angles": {"type": "array", "items": {"enum": [0, 180]}, "minItems": 1},
         "threshold": {"type": "number"},
-        "batch": {"type": "integer", "minimum": 1, "default": 1}
+        "batches": {"$ref": "#/$defs/batches"}
       }
     },
     "recognizer": {
@@ -60,7 +60,7 @@
         "min_width": {"type": "integer", "minimum": 1},
         "max_width": {"type": "integer", "minimum": 1},
         "widths": {"type": "array", "items": {"type": "integer", "minimum": 1}, "description": "Ascending width buckets compiled once per session."},
-        "batch": {"type": "integer", "minimum": 1, "default": 1},
+        "batches": {"$ref": "#/$defs/batches"},
         "charset": {
           "type": "object",
           "oneOf": [{"required": ["yaml"]}, {"required": ["file"]}],
@@ -94,6 +94,7 @@
         "std": {"type": "array", "items": {"type": "number", "not": {"const": 0}}, "minItems": 3, "maxItems": 3}
       }
     },
+    "batches": {"type": "array", "items": {"type": "integer", "minimum": 1}, "default": [1], "description": "Batch-size buckets compiled once per session; lines are grouped greedily into the largest bucket that fits."},
     "size": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2}
   }
 }
