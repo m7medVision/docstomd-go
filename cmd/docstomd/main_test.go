@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -703,5 +704,39 @@ func TestMultiFileNeedsOutDir(t *testing.T) {
 	code, _, stderr := runCLI(t, "convert", "--out-dir", t.TempDir(), "x/a.pdf", "y/a.pdf")
 	if code != exitUsage || !strings.Contains(stderr, "both write") {
 		t.Errorf("colliding outputs: exit %d %s", code, stderr)
+	}
+}
+
+func TestOCRCommandDelegatesToLocalEngine(t *testing.T) {
+	code, _, stderr := runCLI(t, "ocr", "list")
+	if code != exitOCRUnavailable || !strings.Contains(stderr, "docstomd-ocr-local not found") {
+		t.Errorf("no engine: exit %d stderr %q", code, stderr)
+	}
+	t.Setenv("DOCSTOMD_OCR_LOCAL", stubEngine(t, "args")[len("exec:"):])
+	writeConfig(t, `{"version": 1, "catalogs": ["/etc/team-catalog.json"]}`)
+	var stdout bytes.Buffer
+	code = runOCR(context.Background(), []string{"install", "--accept-license", "CC-BY-4.0", "my-model"}, strings.NewReader(""), &stdout, io.Discard)
+	if code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	var got []string
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("%v: %s", err, stdout.String())
+	}
+	want := []string{"install", "--catalog", "/etc/team-catalog.json", "--accept-license", "CC-BY-4.0", "my-model"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("engine args = %q, want %q", got, want)
+	}
+	if code, _, _ := runCLI(t, "ocr", "bogus"); code != exitUsage {
+		t.Errorf("unknown subcommand exit %d", code)
+	}
+}
+
+func TestLocalEngineArgs(t *testing.T) {
+	cfg := &config{Catalogs: []string{"team.json"}}
+	got := localArgs(providerFlags{model: "m", lang: "ar", backend: "go", catalogs: []string{"extra.json"}}, cfg)
+	want := []string{"--model", "m", "--lang", "ar", "--backend", "go", "--catalog", "team.json", "--catalog", "extra.json"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("args = %q, want %q", got, want)
 	}
 }

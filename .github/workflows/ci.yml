@@ -58,3 +58,29 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: go build ./...
+
+  # Model goldens on the pure-Go reference backend. Models are downloaded once
+  # per catalog change and cached; the test run itself is offline.
+  ocr-models:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ocr
+    env:
+      CGO_ENABLED: "0"
+      GOWORK: "off"
+      DOCSTOMD_OCR_TEST_MODELS: ${{ github.workspace }}/.ocr-models
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ocr/go.mod
+          cache-dependency-path: ocr/go.sum
+      - id: models
+        uses: actions/cache@v5
+        with:
+          path: .ocr-models
+          key: ocr-models-${{ hashFiles('ocr/catalog/builtin.json') }}
+      - if: steps.models.outputs.cache-hit != 'true'
+        run: go run ./cmd/docstomd-ocr-local install --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile
+      - run: go test ./...

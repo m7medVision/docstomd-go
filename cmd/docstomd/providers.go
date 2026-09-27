@@ -23,6 +23,9 @@ type config struct {
 	// Default names the provider used without --ocr-provider.
 	Default   string                   `json:"default"`
 	Providers map[string]providerEntry `json:"providers"`
+	// Catalogs are extra local-model catalogs (files or https URLs) passed
+	// to the local engine.
+	Catalogs []string `json:"catalogs"`
 	// path is where the config was read from; relative commands resolve
 	// against its directory.
 	path string
@@ -76,8 +79,11 @@ func loadConfig() (*config, error) {
 
 // providerFlags are the convert flags that choose and tune the provider.
 type providerFlags struct {
-	spec  string
-	model string
+	spec     string
+	model    string
+	lang     string
+	backend  string
+	catalogs []string
 }
 
 // resolveProvider turns --ocr-provider into a provider. Without the flag
@@ -98,11 +104,7 @@ func resolveProvider(flags providerFlags, cfg *config) (docstomd.OCRProvider, er
 	case "mistral":
 		return docstomd.NewMistralProvider(docstomd.MistralOptions{Model: flags.model}), nil
 	case "local":
-		var args []string
-		if flags.model != "" {
-			args = append(args, "--model", flags.model)
-		}
-		return docstomd.NewLocalOCRProvider(args...), nil
+		return docstomd.NewLocalOCRProvider(localArgs(flags, cfg)...), nil
 	}
 	name, isExec := strings.CutPrefix(spec, "exec:")
 	if entry, ok := cfg.Providers[name]; ok {
@@ -115,6 +117,32 @@ func resolveProvider(flags providerFlags, cfg *config) (docstomd.OCRProvider, er
 		return nil, errors.New("--ocr-provider exec: needs a program path or provider name")
 	}
 	return docstomd.NewExternalOCRProvider(docstomd.ExternalOCRConfig{Command: name}), nil
+}
+
+// localArgs are the local engine's serve flags.
+func localArgs(flags providerFlags, cfg *config) []string {
+	var args []string
+	if flags.model != "" {
+		args = append(args, "--model", flags.model)
+	}
+	if flags.lang != "" {
+		args = append(args, "--lang", flags.lang)
+	}
+	if flags.backend != "" {
+		args = append(args, "--backend", flags.backend)
+	}
+	return append(args, catalogArgs(cfg.Catalogs, flags.catalogs)...)
+}
+
+// catalogArgs passes the config's and the command line's catalogs.
+func catalogArgs(lists ...[]string) []string {
+	var args []string
+	for _, list := range lists {
+		for _, c := range list {
+			args = append(args, "--catalog", c)
+		}
+	}
+	return args
 }
 
 func (cfg *config) external(name string, entry providerEntry) docstomd.ExternalOCRConfig {

@@ -210,3 +210,19 @@ func (in Input) validate() error {
 	}
 	return nil
 }
+
+// Files lists the files the manifest refers to, relative to the model
+// directory.
+func (m *Manifest) Files() []string {
+	files := []string{m.Detector.Model, m.Recognizer.Model}
+	if m.Classifier != nil {
+		files = append(files, m.Classifier.Model)
+	}
+	if m.Recognizer.Charset.YAML != "" {
+		files = append(files, m.Recognizer.Charset.YAML)
+	}
+	if m.Recognizer.Charset.File != "" {
+		files = append(files, m.Recognizer.Charset.File)
+	}
+	return files
+}

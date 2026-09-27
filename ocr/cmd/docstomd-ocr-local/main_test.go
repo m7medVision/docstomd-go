@@ -152,3 +152,48 @@ func TestConvertEndToEnd(t *testing.T) {
 		}
 	}
 }
+
+func TestInstalledModelsWorkOffline(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "pp-ocrv5-mobile")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"schema":1,"id":"pp-ocrv5-mobile","languages":["en"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	// An unreachable user catalog must not stop an installed model.
+	got, err := resolveModel(context.Background(), options{modelsRoot: root, lang: "en", catalogs: stringList{"https://127.0.0.1:1/catalog.json"}}, &stderr)
+	if err != nil || got != dir {
+		t.Errorf("resolveModel = %q, %v", got, err)
+	}
+	if !strings.Contains(stderr.String(), "built-in catalog") {
+		t.Errorf("no warning about the unreachable catalog: %q", stderr.String())
+	}
+}
+
+func TestListShowsCatalogAndInstalled(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "pp-ocrv5-mobile"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "pp-ocrv5-mobile", "manifest.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"list", "--json", "--models", root}, nil, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	var entries []struct {
+		ID        string `json:"id"`
+		Installed bool   `json:"installed"`
+		License   string `json:"license"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) < 2 || entries[0].ID != "pp-ocrv5-mobile" || !entries[0].Installed || entries[1].Installed || entries[0].License != "Apache-2.0" {
+		t.Errorf("list = %+v", entries)
+	}
+}

@@ -38,6 +38,7 @@ go get github.com/m7medVision/docstomd-go
 docstomd convert [flags] <file>    convert a document to Markdown
 docstomd convert --out-dir DIR [flags] <file>...   convert several documents
 docstomd detect  [flags] <file>    report the detected format (and PDF classification)
+docstomd ocr list | install <id>   manage local OCR models (runs docstomd-ocr-local)
 docstomd help                      print usage
 ```
 
@@ -55,6 +56,9 @@ appear before or after the file.
 | `--ocr-max-pages-run N` | `0` (unlimited) | Maximum pages sent to OCR across all inputs of the run |
 | `--ocr-provider P` | see [Providers](#providers) | `mistral`, `local`, `exec:<path>` or a provider name from the config file |
 | `--ocr-model ID` | provider default | Mistral model (`mistral-ocr-latest`; pin a dated version for reproducible output) or local model id |
+| `--ocr-lang L` | none | Local OCR: first installed model that reads language `L` |
+| `--ocr-backend B` | `auto` | Local OCR inference backend |
+| `--ocr-catalog C` | none | Local OCR: extra model catalog file or `https://` URL (repeatable) |
 | `--out-dir DIR` | none | Write `<name>.md` (`<name>.json` with `--json`) per input into `DIR`; required for several inputs, which then share one OCR engine session and one page budget |
 | `--items-json` | off | PDF debugging: dump positioned text items as JSON |
 
@@ -337,6 +341,44 @@ native text is kept and the page is listed in `needs_review`.
 Without the flag, docstomd uses the config file's `default`, else `mistral`
 when `MISTRAL_API_KEY` is set, else `local`. A missing engine fails with
 `ocrUnavailable` (exit 5) and an install hint.
+
+### Local OCR
+
+`docstomd-ocr-local` runs OCR models on your CPU: no API key, no network
+after install, no cgo. It lives in its own Go module (`ocr/`, Go 1.27) so
+the core library keeps its tiny dependency set.
+
+```sh
+go install github.com/m7medVision/docstomd-go/ocr/cmd/docstomd-ocr-local@latest
+docstomd ocr list                      # catalog models, sizes, licences, what is installed
+docstomd ocr install pp-ocrv5-mobile   # download and SHA-256-verify a model
+docstomd convert --ocr auto --ocr-provider local scan.pdf
+```
+
+Nothing is downloaded behind your back: models arrive only through
+`docstomd ocr install`, into `$DOCSTOMD_OCR_MODELS` or the user data directory
+(`~/.local/share/docstomd/ocr/models` on Linux). Every file is pinned to a
+Hugging Face commit (`hf://<org>/<repo>@<commit>/<file>`, honouring
+`HF_ENDPOINT`) or an `https://` URL, and checked against its SHA-256. A failed
+download leaves no partial model.
+
+- **Pick a model** with `--ocr-model <id>` or a language with
+  `--ocr-lang <code>`. Otherwise docstomd uses the only installed model, else
+  the first installed one in catalog order.
+- **Pick a backend** with `--ocr-backend`: `go` (pure Go, the reference; a
+  few seconds per page) or `auto`.
+- **Bring your own models** with a catalog file or URL
+  (`--ocr-catalog`, or `"catalogs": [...]` in `providers.json`), following
+  [`docs/schemas/ocr-catalog-v1.schema.json`](docs/schemas/ocr-catalog-v1.schema.json).
+  Each model is a [manifest](docs/schemas/ocr-manifest-v1.schema.json) plus
+  its files. `HF_TOKEN` is sent for user catalogs' Hugging Face sources. The
+  built-in catalog lists permissively licensed models only; a model under any
+  other licence needs `docstomd ocr install --accept-license <licence> <id>`.
+
+| Model | Languages | Size | Licence |
+|---|---|---|---|
+| `pp-ocrv5-mobile` (default) | Chinese, English, Japanese | 27 MB | Apache-2.0 |
+| `pp-ocrv5-server` | Chinese, English, Japanese | 171 MB | Apache-2.0 |
 
 ### Bring your own engine
 

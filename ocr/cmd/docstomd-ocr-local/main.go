@@ -37,13 +37,31 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "list":
+			return runList(ctx, args[1:], stdout, stderr)
+		case "install":
+			return runInstall(ctx, args[1:], stderr)
+		case "check-catalog":
+			return runCheck(ctx, args[1:], stdout, stderr)
+		case "serve":
+			args = args[1:]
+		}
+	}
 	fs := flag.NewFlagSet("docstomd-ocr-local", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(fs.Output(), usage)
+		fs.PrintDefaults()
+	}
 	opts := options{}
-	fs.StringVar(&opts.model, "model", "", "model id to use (default: the only installed model, else the first installed)")
+	fs.StringVar(&opts.model, "model", "", "model id to use (default: the only installed model, else the first installed in catalog order)")
+	fs.StringVar(&opts.lang, "lang", "", "pick the first installed model that reads this language (e.g. en, ar)")
 	fs.StringVar(&opts.modelDir, "model-dir", "", "use the model in this directory instead of an installed one")
 	fs.StringVar(&opts.modelsRoot, "models", "", "directory holding installed models (default $DOCSTOMD_OCR_MODELS, else the user data directory)")
 	fs.StringVar(&opts.backend, "backend", "auto", "inference backend: "+strings.Join(backend.Names, ", "))
+	fs.Var(&opts.catalogs, "catalog", "extra model catalog (file or https URL); repeatable")
 	showVersion := fs.Bool("version", false, "print the version")
 	if err := fs.Parse(args); err != nil {
 		return 1
@@ -61,12 +79,29 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	return s.serve(ctx, stdin, stdout)
 }
 
+const usage = `usage:
+  docstomd-ocr-local [serve] [flags]      speak the docstomd OCR protocol on stdin/stdout
+  docstomd-ocr-local list [--json]        list catalog models and what is installed
+  docstomd-ocr-local install <id>...      download and verify models
+  docstomd-ocr-local check-catalog        verify catalog pins against Hugging Face
+
+serve flags:
+`
+
 type options struct {
 	model      string
+	lang       string
 	modelDir   string
 	modelsRoot string
 	backend    string
+	catalogs   stringList
 }
+
+// stringList is a repeatable string flag.
+type stringList []string
+
+func (l *stringList) String() string     { return strings.Join(*l, ",") }
+func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
 
 // Protocol v1 messages (docs/ocr-protocol.md).
 type (
@@ -219,7 +254,7 @@ func (s *server) engine() (*engine.Engine, error) {
 	if s.eng != nil || s.loadErr != nil {
 		return s.eng, s.loadErr
 	}
-	dir, err := resolveModel(s.opts)
+	dir, err := resolveModel(context.Background(), s.opts, s.stderr)
 	if err != nil {
 		s.loadErr = err
 		return nil, err

@@ -35,6 +35,7 @@ const usageText = `usage: docstomd <command> [flags] <file>
 commands:
   convert   convert a document to Markdown
   detect    report the detected document format
+  ocr       manage local OCR models: ocr list, ocr install <id>...
   version   print the version
 
 common flags:
@@ -51,6 +52,9 @@ convert OCR flags (PDF):
                          $XDG_CONFIG_HOME/docstomd/providers.json;
                          default: mistral when MISTRAL_API_KEY is set, else local
   --ocr-model ID         Mistral model (default mistral-ocr-latest) or local model id
+  --ocr-lang L           local: first installed model reading language L (e.g. ar)
+  --ocr-backend B        local: inference backend (auto, go)
+  --ocr-catalog C        local: extra model catalog file or https URL (repeatable)
   Mistral reads MISTRAL_API_KEY from the environment.
 
 convert several files:
@@ -80,6 +84,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runConvert(ctx, rest, stdout, stderr)
 	case "detect":
 		return runDetect(ctx, rest, stdout, stderr)
+	case "ocr":
+		return runOCR(ctx, rest, os.Stdin, stdout, stderr)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usageText)
 		return exitOK
@@ -107,6 +113,10 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	ocrMaxPages := fs.Int("ocr-max-pages", 0, "maximum pages sent to OCR per document (0 = unlimited)")
 	ocrMaxPagesRun := fs.Int("ocr-max-pages-run", 0, "maximum pages sent to OCR across all inputs (0 = unlimited)")
 	ocrModel := fs.String("ocr-model", "", "OCR model: the Mistral model id (default mistral-ocr-latest), or a local model id")
+	ocrLang := fs.String("ocr-lang", "", "local OCR: pick the first installed model that reads this language (e.g. en, ar)")
+	ocrBackend := fs.String("ocr-backend", "", "local OCR inference backend: auto, go (default auto)")
+	var ocrCatalogs stringList
+	fs.Var(&ocrCatalogs, "ocr-catalog", "local OCR: extra model catalog (file or https URL); repeatable")
 	ocrProvider := fs.String("ocr-provider", "", "OCR provider: mistral, local, exec:<path>, or a name from the config file (default: mistral when MISTRAL_API_KEY is set, else local)")
 	if wantsHelp(args) {
 		fs.SetOutput(stdout)
@@ -164,7 +174,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			fmt.Fprintf(stderr, "docstomd convert: %v\n", err)
 			return exitUsage
 		}
-		provider, err = resolveProvider(providerFlags{spec: *ocrProvider, model: *ocrModel}, cfg)
+		provider, err = resolveProvider(providerFlags{spec: *ocrProvider, model: *ocrModel, lang: *ocrLang, backend: *ocrBackend, catalogs: ocrCatalogs}, cfg)
 		if err != nil {
 			fmt.Fprintf(stderr, "docstomd convert: %v\n", err)
 			return exitUsage
@@ -330,6 +340,9 @@ var flagsTakingValue = map[string]bool{
 	"--ocr-provider": true, "-ocr-provider": true,
 	"--ocr-max-pages-run": true, "-ocr-max-pages-run": true,
 	"--out-dir": true, "-out-dir": true,
+	"--ocr-lang": true, "-ocr-lang": true,
+	"--ocr-backend": true, "-ocr-backend": true,
+	"--ocr-catalog": true, "-ocr-catalog": true,
 }
 
 func reorderFlags(args []string) []string {

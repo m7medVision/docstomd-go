@@ -1,0 +1,325 @@
+{
+  "catalog": 1,
+  "models": [
+    {
+      "id": "pp-ocrv5-mobile",
+      "family": "pp-ocrv5",
+      "description": "PP-OCRv5 mobile (PaddlePaddle): Chinese, English, Japanese; small and fast",
+      "languages": [
+        "zh",
+        "zh-Hant",
+        "en",
+        "ja"
+      ],
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "path": "det/inference.onnx",
+          "source": "hf://PaddlePaddle/PP-OCRv5_mobile_det_onnx@e6f4fa85f00e168c862bc462aebca69eef9b3d3d/inference.onnx",
+          "sha256": "a431985659dc921974177a95adcfbb90fd9e51989a5e04d70d0b75f597b6e61d",
+          "size": 4826518
+        },
+        {
+          "path": "cls/inference.onnx",
+          "source": "hf://PaddlePaddle/PP-LCNet_x1_0_textline_ori_onnx@7fdcf3cf7061163eda7183b224aa334bd33068f7/inference.onnx",
+          "sha256": "38aa97cd4be591e0ad304e659f07ba30d946f27a63315433f6659c69c8778345",
+          "size": 6777816
+        },
+        {
+          "path": "rec/inference.onnx",
+          "source": "hf://PaddlePaddle/PP-OCRv5_mobile_rec_onnx@ed152b8b495f84de93cda5709d768548a9127622/inference.onnx",
+          "sha256": "da72dc72ca4dc220df0dfde68c1dedc31c58d3e76a25871122e5056227d50092",
+          "size": 16534782
+        },
+        {
+          "path": "rec/inference.yml",
+          "source": "hf://PaddlePaddle/PP-OCRv5_mobile_rec_onnx@ed152b8b495f84de93cda5709d768548a9127622/inference.yml",
+          "sha256": "5dfeb2777f6d0db8177d8128a8acfcf6e6276dc4ac73ea3bf0dc06d6a5e85d8e",
+          "size": 148345
+        }
+      ],
+      "manifest": {
+        "schema": 1,
+        "id": "pp-ocrv5-mobile",
+        "family": "pp-ocrv5",
+        "languages": [
+          "zh",
+          "zh-Hant",
+          "en",
+          "ja"
+        ],
+        "license": "Apache-2.0",
+        "output_order": "logical",
+        "detector": {
+          "model": "det/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "limit_side": 960,
+          "limit_type": "max",
+          "multiple": 32,
+          "buckets": [
+            [
+              640,
+              640
+            ],
+            [
+              960,
+              960
+            ],
+            [
+              736,
+              960
+            ],
+            [
+              960,
+              736
+            ]
+          ],
+          "postprocess": {
+            "type": "db",
+            "thresh": 0.3,
+            "box_thresh": 0.6,
+            "unclip_ratio": 1.5,
+            "max_candidates": 1000
+          }
+        },
+        "classifier": {
+          "model": "cls/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "height": 80,
+          "width": 160,
+          "angles": [
+            0,
+            180
+          ],
+          "threshold": 0.9,
+          "batch": 8
+        },
+        "recognizer": {
+          "model": "rec/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.5,
+              0.5,
+              0.5
+            ],
+            "std": [
+              0.5,
+              0.5,
+              0.5
+            ]
+          },
+          "height": 48,
+          "min_width": 320,
+          "max_width": 3200,
+          "widths": [
+            320,
+            480,
+            640,
+            800,
+            960,
+            1280,
+            1600
+          ],
+          "batch": 8,
+          "charset": {
+            "yaml": "rec/inference.yml",
+            "key": "character_dict"
+          },
+          "decoder": {
+            "type": "ctc",
+            "blank": 0,
+            "append_space": true
+          }
+        }
+      }
+    },
+    {
+      "id": "pp-ocrv5-server",
+      "family": "pp-ocrv5",
+      "description": "PP-OCRv5 server (PaddlePaddle): Chinese, English, Japanese; larger and more accurate, slow on the go backend",
+      "languages": [
+        "zh",
+        "zh-Hant",
+        "en",
+        "ja"
+      ],
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "path": "det/inference.onnx",
+          "source": "hf://PaddlePaddle/PP-OCRv5_server_det_onnx@dcf248c4dcc064c6d030db241255f9e8fbc6733a/inference.onnx",
+          "sha256": "10803475a591f7dc623e24670fb5752ec94d39a1f8cf069aac1b6f0ce19cfc85",
+          "size": 88116791
+        },
+        {
+          "path": "cls/inference.onnx",
+          "source": "hf://PaddlePaddle/PP-LCNet_x1_0_textline_ori_onnx@7fdcf3cf7061163eda7183b224aa334bd33068f7/inference.onnx",
+          "sha256": "38aa97cd4be591e0ad304e659f07ba30d946f27a63315433f6659c69c8778345",
+          "size": 6777816
+        },
+        {
+          "path": "rec/inference.onnx",
+          "source": "hf://PaddlePaddle/PP-OCRv5_server_rec_onnx@b70df217f4fd99d14f970bad092cebe7d74cc4d1/inference.onnx",
+          "sha256": "d9dc333c9c7b042c6dffb8e33d72b6f65c9c1d463d0a3c2f78174fea55e94752",
+          "size": 84503027
+        },
+        {
+          "path": "rec/inference.yml",
+          "source": "hf://PaddlePaddle/PP-OCRv5_server_rec_onnx@b70df217f4fd99d14f970bad092cebe7d74cc4d1/inference.yml",
+          "sha256": "2c719dba044c4e2228aef8ff92f5f575394d75d24c16de096a33b7cfd902f66d",
+          "size": 148345
+        }
+      ],
+      "manifest": {
+        "schema": 1,
+        "id": "pp-ocrv5-server",
+        "family": "pp-ocrv5",
+        "languages": [
+          "zh",
+          "zh-Hant",
+          "en",
+          "ja"
+        ],
+        "license": "Apache-2.0",
+        "output_order": "logical",
+        "detector": {
+          "model": "det/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "limit_side": 960,
+          "limit_type": "max",
+          "multiple": 32,
+          "buckets": [
+            [
+              640,
+              640
+            ],
+            [
+              960,
+              960
+            ],
+            [
+              736,
+              960
+            ],
+            [
+              960,
+              736
+            ]
+          ],
+          "postprocess": {
+            "type": "db",
+            "thresh": 0.3,
+            "box_thresh": 0.6,
+            "unclip_ratio": 1.5,
+            "max_candidates": 1000
+          }
+        },
+        "classifier": {
+          "model": "cls/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.485,
+              0.456,
+              0.406
+            ],
+            "std": [
+              0.229,
+              0.224,
+              0.225
+            ]
+          },
+          "height": 80,
+          "width": 160,
+          "angles": [
+            0,
+            180
+          ],
+          "threshold": 0.9,
+          "batch": 8
+        },
+        "recognizer": {
+          "model": "rec/inference.onnx",
+          "input": {
+            "color": "bgr",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.5,
+              0.5,
+              0.5
+            ],
+            "std": [
+              0.5,
+              0.5,
+              0.5
+            ]
+          },
+          "height": 48,
+          "min_width": 320,
+          "max_width": 3200,
+          "widths": [
+            320,
+            480,
+            640,
+            800,
+            960,
+            1280,
+            1600
+          ],
+          "batch": 8,
+          "charset": {
+            "yaml": "rec/inference.yml",
+            "key": "character_dict"
+          },
+          "decoder": {
+            "type": "ctc",
+            "blank": 0,
+            "append_space": true
+          }
+        }
+      }
+    }
+  ]
+}

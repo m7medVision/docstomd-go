@@ -23,7 +23,7 @@ const EnvMode = "DOCSTOMD_STUB"
 const EnvStarts = "DOCSTOMD_STUB_STARTS"
 
 // Stub speaks the OCR protocol on stdin/stdout in the named mode: markdown,
-// lines, single (answer once, exit), or a failure mode (nohello, badhello,
+// lines, single (answer once, exit), args (print arguments), or a failure mode (nohello, badhello,
 // version2, malformed, extrapage, empty, wrongid, unavailable, failed, crash,
 // hang). It returns the process exit code.
 func Stub(mode string) int {
@@ -35,6 +35,11 @@ func Stub(mode string) int {
 	}
 	out := json.NewEncoder(os.Stdout)
 	switch mode {
+	case "args":
+		// Not a protocol mode: print the arguments, as a stand-in for the
+		// local engine's model-management subcommands.
+		_ = out.Encode(os.Args[1:])
+		return 0
 	case "nohello":
 		fmt.Fprintln(os.Stderr, "model file missing")
 		return 1
