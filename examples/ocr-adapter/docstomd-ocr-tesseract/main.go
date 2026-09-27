@@ -60,8 +60,13 @@ func main() {
 	dpi := flag.Int("dpi", 300, "render resolution")
 	flag.Parse()
 
-	out := json.NewEncoder(os.Stdout)
-	out.Encode(map[string]any{"type": "hello", "protocol": 1, "engine": "tesseract", "version": tesseractVersion(), "local": true})
+	enc := json.NewEncoder(os.Stdout)
+	send := func(msg map[string]any) {
+		if err := enc.Encode(msg); err != nil {
+			os.Exit(1) // docstomd went away
+		}
+	}
+	send(map[string]any{"type": "hello", "protocol": 1, "engine": "tesseract", "version": tesseractVersion(), "local": true})
 	in := bufio.NewReader(os.Stdin)
 	for {
 		msg, err := in.ReadBytes('\n')
@@ -79,11 +84,11 @@ func main() {
 		pages, err := recognize(req, *lang, *dpi)
 		switch {
 		case errors.Is(err, errUnavailable):
-			out.Encode(map[string]any{"type": "error", "id": req.ID, "code": "unavailable", "message": err.Error()})
+			send(map[string]any{"type": "error", "id": req.ID, "code": "unavailable", "message": err.Error()})
 		case err != nil:
-			out.Encode(map[string]any{"type": "error", "id": req.ID, "code": "failed", "message": err.Error()})
+			send(map[string]any{"type": "error", "id": req.ID, "code": "failed", "message": err.Error()})
 		default:
-			out.Encode(map[string]any{"type": "result", "id": req.ID, "pages": pages})
+			send(map[string]any{"type": "result", "id": req.ID, "pages": pages})
 		}
 	}
 }
@@ -111,7 +116,7 @@ func recognize(req request, lang string, dpi int) ([]page, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	input := filepath.Join(dir, "in.pdf")
 	if err := os.WriteFile(input, pdf, 0o600); err != nil {
 		return nil, err

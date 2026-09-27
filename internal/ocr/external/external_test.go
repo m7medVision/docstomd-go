@@ -31,7 +31,7 @@ func stubProvider(t *testing.T, mode string) *external.Provider {
 		t.Fatal(err)
 	}
 	p := external.New(external.Config{Command: exe, Env: []string{externaltest.EnvMode + "=" + mode}})
-	t.Cleanup(func() { p.Close() })
+	t.Cleanup(func() { _ = p.Close() })
 	return p
 }
 

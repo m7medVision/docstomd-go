@@ -170,7 +170,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			return exitUsage
 		}
 		if closer, ok := provider.(io.Closer); ok {
-			defer closer.Close()
+			defer func() { _ = closer.Close() }()
 		}
 	}
 	ocrOpts := docstomd.OCROptions{

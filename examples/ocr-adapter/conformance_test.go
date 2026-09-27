@@ -57,7 +57,7 @@ func TestTesseractAdapterConforms(t *testing.T) {
 func TestTesseractConvertsScannedFixture(t *testing.T) {
 	requireTesseract(t)
 	provider := docstomd.NewExternalOCRProvider(docstomd.ExternalOCRConfig{Command: build(t, "docstomd-ocr-tesseract")})
-	defer provider.Close()
+	defer func() { _ = provider.Close() }()
 	for _, name := range []string{"field-report-jpeg.pdf", "field-report-flate.pdf"} {
 		result, err := docstomd.Convert(context.Background(), bytes.NewReader(fixture(t, name)), docstomd.Options{OCR: docstomd.OCROptions{Mode: docstomd.OCRAuto, Provider: provider}})
 		if err != nil {

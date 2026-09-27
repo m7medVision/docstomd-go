@@ -65,8 +65,12 @@ func main() {
 		write(filepath.Join(out, fx.name+"-jpeg.pdf"), imagePDF(fx, img.Bounds(), "/DCTDecode", jpg.Bytes()))
 		var flate bytes.Buffer
 		zw, _ := zlib.NewWriterLevel(&flate, zlib.BestCompression)
-		zw.Write(img.Pix)
-		zw.Close()
+		if _, err := zw.Write(img.Pix); err != nil {
+			log.Fatal(err)
+		}
+		if err := zw.Close(); err != nil {
+			log.Fatal(err)
+		}
 		write(filepath.Join(out, fx.name+"-flate.pdf"), imagePDF(fx, img.Bounds(), "/FlateDecode", flate.Bytes()))
 		var text []string
 		for _, ln := range fx.lines {
@@ -100,7 +104,7 @@ func render(fx fixture) (*image.Gray, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	in := filepath.Join(dir, "in.pdf")
 	if err := os.WriteFile(in, src, 0o644); err != nil {
 		return nil, err
@@ -113,7 +117,7 @@ func render(fx fixture) (*image.Gray, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	decoded, err := png.Decode(f)
 	if err != nil {
 		return nil, err

@@ -18,7 +18,7 @@ import (
 // Stub instead of its tests.
 const EnvMode = "DOCSTOMD_STUB"
 
-// EnvStarts, when set, names a file the stub appends "start\n" to each time
+// EnvStarts names, when set, a file the stub appends "start\n" to each time
 // it starts, so tests can count engine processes.
 const EnvStarts = "DOCSTOMD_STUB_STARTS"
 
@@ -29,8 +29,8 @@ const EnvStarts = "DOCSTOMD_STUB_STARTS"
 func Stub(mode string) int {
 	if path := os.Getenv(EnvStarts); path != "" {
 		if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
-			f.WriteString("start\n")
-			f.Close()
+			_, _ = f.WriteString("start\n")
+			_ = f.Close()
 		}
 	}
 	out := json.NewEncoder(os.Stdout)
@@ -42,9 +42,9 @@ func Stub(mode string) int {
 		fmt.Println("hello there")
 		return 0
 	case "version2":
-		out.Encode(external.Hello{Type: "hello", Protocol: 2, Engine: "stub"})
+		_ = out.Encode(external.Hello{Type: "hello", Protocol: 2, Engine: "stub"})
 	default:
-		out.Encode(external.Hello{Type: "hello", Protocol: 1, Engine: "stub", Version: "1.0", PageCost: 0.5, Local: mode == "lines"})
+		_ = out.Encode(external.Hello{Type: "hello", Protocol: 1, Engine: "stub", Version: "1.0", PageCost: 0.5, Local: mode == "lines"})
 	}
 	in := bufio.NewReader(os.Stdin)
 	for {
@@ -88,7 +88,7 @@ func Stub(mode string) int {
 		case "hang":
 			time.Sleep(time.Minute)
 		}
-		out.Encode(resp)
+		_ = out.Encode(resp)
 		if mode == "single" {
 			return 0
 		}

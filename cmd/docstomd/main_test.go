@@ -25,12 +25,16 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	os.Setenv("XDG_CONFIG_HOME", dir)
-	os.Setenv("HOME", dir)
-	os.Unsetenv("DOCSTOMD_OCR_LOCAL")
-	os.Setenv("PATH", "")
+	for key, value := range map[string]string{"XDG_CONFIG_HOME": dir, "HOME": dir, "PATH": ""} {
+		if err := os.Setenv(key, value); err != nil {
+			panic(err)
+		}
+	}
+	if err := os.Unsetenv("DOCSTOMD_OCR_LOCAL"); err != nil {
+		panic(err)
+	}
 	code := m.Run()
-	os.RemoveAll(dir)
+	_ = os.RemoveAll(dir)
 	os.Exit(code)
 }
 

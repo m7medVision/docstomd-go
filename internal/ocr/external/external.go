@@ -353,9 +353,9 @@ func (p *Provider) stop() {
 	if p.proc == nil {
 		return
 	}
-	p.proc.stdin.Close()
+	_ = p.proc.stdin.Close()
 	p.proc.kill()
-	p.proc.cmd.Wait()
+	_ = p.proc.cmd.Wait()
 	p.lastStderr = ""
 	if tail := bytes.TrimSpace(p.proc.stderr.bytes()); len(tail) > 0 {
 		p.lastStderr = " (stderr: " + string(tail) + ")"
@@ -373,13 +373,13 @@ func (p *Provider) Close() error {
 	}
 	proc := p.proc
 	p.proc = nil
-	proc.stdin.Close()
+	_ = proc.stdin.Close()
 	exited := make(chan error, 1)
 	go func() { exited <- proc.cmd.Wait() }()
 	select {
 	case <-exited:
 	case <-time.After(closeGrace):
-		proc.cmd.Process.Kill()
+		proc.kill()
 		<-exited
 	}
 	return nil
@@ -387,7 +387,7 @@ func (p *Provider) Close() error {
 
 func (proc *process) kill() {
 	if proc.cmd.Process != nil {
-		proc.cmd.Process.Kill()
+		_ = proc.cmd.Process.Kill()
 	}
 }
 

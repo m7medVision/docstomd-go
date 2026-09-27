@@ -25,7 +25,7 @@ func Conformance(t *testing.T, cfg external.Config, pdf []byte, pages []int) {
 	defer cancel()
 
 	p := external.New(cfg)
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 	for round := range 2 {
 		results, err := p.Recognize(ctx, ocr.Document{Bytes: pdf}, pages)
 		if err != nil {
@@ -50,7 +50,7 @@ func Conformance(t *testing.T, cfg external.Config, pdf []byte, pages []int) {
 		t.Error("handshake has no engine name")
 	}
 	start := time.Now()
-	p.Close()
+	_ = p.Close()
 	if d := time.Since(start); d > 3*time.Second {
 		t.Errorf("engine took %v to exit after stdin closed", d)
 	}
@@ -67,8 +67,8 @@ func Conformance(t *testing.T, cfg external.Config, pdf []byte, pages []int) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer cmd.Wait()
-	defer stdin.Close()
+	defer func() { _ = cmd.Wait() }()
+	defer func() { _ = stdin.Close() }()
 	out := bufio.NewReader(stdout)
 	var hello map[string]any
 	readJSON(t, out, &hello)
@@ -79,7 +79,9 @@ func Conformance(t *testing.T, cfg external.Config, pdf []byte, pages []int) {
 		"type": "recognize", "id": "conformance-7", "pdf": base64.StdEncoding.EncodeToString(pdf),
 		"pages": pages[:1], "x_future_field": map[string]any{"a": 1},
 	})
-	stdin.Write(append(req, '\n'))
+	if _, err := stdin.Write(append(req, '\n')); err != nil {
+		t.Fatal(err)
+	}
 	var resp map[string]any
 	readJSON(t, out, &resp)
 	if resp["type"] != "result" || resp["id"] != "conformance-7" {

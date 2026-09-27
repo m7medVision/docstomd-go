@@ -56,8 +56,13 @@ func recognize(pdf []byte, pageNum int) (page, error) {
 }
 
 func main() {
-	out := json.NewEncoder(os.Stdout) // one JSON object per line
-	out.Encode(map[string]any{"type": "hello", "protocol": 1, "engine": "example-go", "version": "1.0.0", "local": true})
+	enc := json.NewEncoder(os.Stdout) // one JSON object per line
+	send := func(msg map[string]any) {
+		if err := enc.Encode(msg); err != nil {
+			os.Exit(1) // docstomd went away
+		}
+	}
+	send(map[string]any{"type": "hello", "protocol": 1, "engine": "example-go", "version": "1.0.0", "local": true})
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(nil, 512<<20) // requests carry the whole PDF
 	for in.Scan() {
@@ -68,7 +73,7 @@ func main() {
 		}
 		pdf, err := base64.StdEncoding.DecodeString(req.PDF)
 		if err != nil {
-			out.Encode(map[string]any{"type": "error", "id": req.ID, "code": "failed", "message": err.Error()})
+			send(map[string]any{"type": "error", "id": req.ID, "code": "failed", "message": err.Error()})
 			continue
 		}
 		pages := []page{}
@@ -80,7 +85,7 @@ func main() {
 			}
 			pages = append(pages, p)
 		}
-		out.Encode(map[string]any{"type": "result", "id": req.ID, "pages": pages})
+		send(map[string]any{"type": "result", "id": req.ID, "pages": pages})
 	}
 	// stdin closed: the session is over.
 }
