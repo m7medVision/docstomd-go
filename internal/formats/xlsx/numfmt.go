@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // builtinCode is the implied code for a built-in numFmtId, "" when none. Ids
@@ -192,11 +193,15 @@ type numberFormat struct {
 	sections []section
 }
 
+// maxFormatCodeLen is the spreadsheet's own cap on a format code, in
+// characters; longer codes render General.
+const maxFormatCodeLen = 255
+
 // parseNumberFormat returns nil for any code outside the implemented grammar:
 // the caller then renders General, since approximating a format would be
 // worse than not applying it.
 func parseNumberFormat(code string) *numberFormat {
-	if code == "" {
+	if code == "" || utf8.RuneCountInString(code) > maxFormatCodeLen {
 		return nil
 	}
 	parts, ok := splitSections(code)
@@ -320,41 +325,32 @@ func selectSection(sections []section, v float64) (section, float64, bool, bool)
 }
 
 func splitSections(code string) ([]string, bool) {
-	parts := []string{""}
+	var parts []string
 	chars := []rune(code)
+	start := 0
 	for i := 0; i < len(chars); i++ {
-		c := chars[i]
-		last := &parts[len(parts)-1]
-		switch c {
+		switch c := chars[i]; c {
 		case ';':
-			parts = append(parts, "")
+			parts = append(parts, string(chars[start:i]))
+			start = i + 1
 		case '"', '[':
 			closer := '"'
 			if c == '[' {
 				closer = ']'
 			}
-			*last += string(c)
-			for {
-				i++
-				if i >= len(chars) {
-					return nil, false
-				}
-				*last += string(chars[i])
-				if chars[i] == closer {
-					break
-				}
+			end := slices.Index(chars[i+1:], closer)
+			if end < 0 {
+				return nil, false
 			}
+			i += end + 1
 		case '\\', '_', '*':
 			if i+1 >= len(chars) {
 				return nil, false
 			}
-			*last += string(c) + string(chars[i+1])
 			i++
-		default:
-			*last += string(c)
 		}
 	}
-	return parts, true
+	return append(parts, string(chars[start:])), true
 }
 
 func decoration(toks []tok) string {
@@ -474,8 +470,8 @@ func parseSection(s string) (section, bool) {
 			if end < 0 {
 				return section{}, false
 			}
-			for _, lc := range chars[i+1 : i+1+end] {
-				raw = pushLiteral(raw, string(lc))
+			if end > 0 {
+				raw = pushLiteral(raw, string(chars[i+1:i+1+end]))
 			}
 			i += end + 2
 		case c == '\\':

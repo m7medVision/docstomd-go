@@ -120,6 +120,7 @@ func parseWorkbook(pkg *opc.Package, wbPart string) (*model.Document, error) {
 				continue
 			}
 			name, _ := sheet.QualifiedAttr("", "name")
+			name = ooxml.CleanText(name)
 			id, _ := sheet.QualifiedAttr(opc.NSRelationships, "id")
 			part, ok := rels.PartPath(id)
 			if !ok {

@@ -107,7 +107,7 @@ func (r *renderer) blocks(blocks []model.Block) string {
 func (r *renderer) block(b model.Block) string {
 	switch b := b.(type) {
 	case model.Heading:
-		text := strings.TrimSpace(r.inlines(b.Content, headingContext, false))
+		text := headingText(r.inlines(b.Content, headingContext, false))
 		if text == "" {
 			return ""
 		}

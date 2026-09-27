@@ -474,21 +474,40 @@ func (s *slide) oleObject(ole *opc.Element, blocks []model.Block) ([]model.Block
 }
 
 // table converts a DrawingML table: origins carry gridSpan/rowSpan and
-// hMerge/vMerge continuation cells consume covered positions.
+// hMerge/vMerge continuation cells consume covered positions. Column spans
+// clamp to the declared grid (or the row's cell count when wider), row spans
+// to the remaining rows, and every span area is charged against the
+// presentation-wide expansion budget.
 func (s *slide) table(tbl *opc.Element, blocks []model.Block) ([]model.Block, error) {
 	declared := 0
 	if pr := tbl.Child(opc.NSDrawingML, "tblPr"); pr != nil && isTrue(pr, "firstRow") {
 		declared = 1
 	}
+	gridCols := 0
+	if grid := tbl.Child(opc.NSDrawingML, "tblGrid"); grid != nil {
+		for range grid.Children(opc.NSDrawingML, "gridCol") {
+			gridCols++
+		}
+	}
+	rows := slices.Collect(tbl.Children(opc.NSDrawingML, "tr"))
 	var b model.GridBuilder
-	for tr := range tbl.Children(opc.NSDrawingML, "tr") {
+	for r, tr := range rows {
 		b.NextRow()
-		for tc := range tr.Children(opc.NSDrawingML, "tc") {
+		cells := slices.Collect(tr.Children(opc.NSDrawingML, "tc"))
+		maxCols := max(gridCols, len(cells))
+		for _, tc := range cells {
 			if isTrue(tc, "hMerge") || isTrue(tc, "vMerge") {
 				b.Covered()
 				continue
 			}
-			cell := model.Cell{ColSpan: span(tc, "gridSpan"), RowSpan: span(tc, "rowSpan")}
+			cell := model.Cell{
+				ColSpan: min(span(tc, "gridSpan"), maxCols),
+				RowSpan: min(span(tc, "rowSpan"), len(rows)-r),
+			}
+			s.c.expansion += uint64(cell.ColSpan)*uint64(cell.RowSpan) - 1
+			if s.c.expansion > model.MaxExpansion {
+				return nil, &model.LimitError{Limit: "max_expansion", Detail: "table span expansion exceeds the presentation budget"}
+			}
 			if tx := tc.Child(opc.NSDrawingML, "txBody"); tx != nil {
 				cell.Blocks = s.textBody(tx, nil, nil)
 			}

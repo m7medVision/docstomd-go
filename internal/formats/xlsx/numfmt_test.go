@@ -3,8 +3,10 @@ package xlsx
 import (
 	"math"
 	"math/rand/v2"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func mustFormat(t *testing.T, code string, v float64) string {
@@ -124,6 +126,71 @@ func TestUnsupportedConstructsRefuseToParse(t *testing.T) {
 		if parseNumberFormat(code) != nil {
 			t.Errorf("%q must not parse", code)
 		}
+	}
+}
+
+func TestSplitSections(t *testing.T) {
+	tests := []struct {
+		name string
+		code string
+		want []string
+		ok   bool
+	}{
+		{"single", "0.00", []string{"0.00"}, true},
+		{"four with empty last", "0;(0);-;", []string{"0", "(0)", "-", ""}, true},
+		{"separators inside quotes and brackets", `"a;b"0;[<0;x]0`, []string{`"a;b"0`, "[<0;x]0"}, true},
+		{"escaped separator", `0\;0`, []string{`0\;0`}, true},
+		{"skip and fill take the separator", "_;*;0", []string{"_;*;0"}, true},
+		{"unterminated quote", `0;"open`, nil, false},
+		{"unterminated bracket", "[Red0", nil, false},
+		{"dangling escape", `0\`, nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := splitSections(tt.code)
+			if ok != tt.ok || !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("splitSections(%q) = %q, %v; want %q, %v", tt.code, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestFormatCodeLengthCap(t *testing.T) {
+	quoted := func(n int) string { return `"` + strings.Repeat("a", n-3) + `"0` }
+	if f := parseNumberFormat(quoted(maxFormatCodeLen)); f == nil {
+		t.Errorf("a %d-character code must parse", maxFormatCodeLen)
+	}
+	long := []struct {
+		name string
+		code string
+	}{
+		{"one past the cap", quoted(maxFormatCodeLen + 1)},
+		{"huge quoted literal", quoted(200_000)},
+		{"huge escape run", strings.Repeat(`\a`, 100_000) + "0"},
+		{"huge section soup", strings.Repeat(`"x;`, 70_000)},
+	}
+	for _, tt := range long {
+		t.Run(tt.name, func(t *testing.T) {
+			start := time.Now()
+			if parseNumberFormat(tt.code) != nil {
+				t.Errorf("%d-character code must render General", len(tt.code))
+			}
+			if d := time.Since(start); d > 100*time.Millisecond {
+				t.Errorf("took %v, want well under a second", d)
+			}
+		})
+	}
+}
+
+func TestLongSectionsSplitInLinearTime(t *testing.T) {
+	code := `"` + strings.Repeat("a", 200_000) + `";` + strings.Repeat(`\a`, 100_000)
+	start := time.Now()
+	parts, ok := splitSections(code)
+	if d := time.Since(start); d > 100*time.Millisecond {
+		t.Errorf("took %v, want well under a second", d)
+	}
+	if !ok || len(parts) != 2 || len(parts[0]) != 200_002 || len(parts[1]) != 200_000 {
+		t.Errorf("got %d parts, ok %v", len(parts), ok)
 	}
 }
 

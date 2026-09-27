@@ -267,6 +267,22 @@ func TestGridBudgetSpansTheWholeWorkbook(t *testing.T) {
 	}
 }
 
+func TestSheetNamesCannotForgeHeadings(t *testing.T) {
+	body := `<sheetData><row r="1">` + inline("A1", "v") + `</row></sheetData>`
+	w := workbook{sheets: []sheetSpec{{"A&#10;# Injected&#13;&#10;[x](http://evil)", "", body}, {"B", "", body}}}
+	md := gfm.Render(parse(t, w))
+	var headings []string
+	for line := range strings.SplitSeq(md, "\n") {
+		if strings.HasPrefix(line, "#") {
+			headings = append(headings, line)
+		}
+	}
+	want := []string{`## A # Injected \[x](http://evil)`, "## B"}
+	if !slices.Equal(headings, want) {
+		t.Errorf("headings = %q, want %q\n%s", headings, want, md)
+	}
+}
+
 func TestFictitiousLeapDayKeepsItsOwnValue(t *testing.T) {
 	dateOnly := dateParts{date: true}
 	cases := []struct {

@@ -283,6 +283,26 @@ func escapeMarkerLabel(label string, ctx context) string {
 	return escapeText(spaceControls(label), ctx, escapeOpts{atLineStart: ctx == blockContext, trailingActive: true})
 }
 
+// headingText keeps rendered heading content on one line, so no frontend can
+// break out of the heading, and escapes a trailing '#' run that CommonMark
+// would read as the closing sequence.
+func headingText(text string) string {
+	text = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, text))
+	at := len(strings.TrimRight(text, "#"))
+	if at == len(text) {
+		return text
+	}
+	if at == 0 || text[at-1] == ' ' || text[at-1] == '\t' {
+		return text[:at] + `\` + text[at:]
+	}
+	return text
+}
+
 func formatURL(url string) string {
 	const hex = "0123456789ABCDEF"
 	var sb strings.Builder
