@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/m7medVision/docstomd-go/docs/schemas/ocr-protocol-v1.schema.json",
+  "title": "docstomd OCR protocol v1 message",
+  "description": "One JSON line exchanged between docstomd and an external OCR engine. See docs/ocr-protocol.md. Unknown fields are ignored by both sides.",
+  "oneOf": [
+    {"$ref": "#/$defs/hello"},
+    {"$ref": "#/$defs/recognize"},
+    {"$ref": "#/$defs/result"},
+    {"$ref": "#/$defs/error"}
+  ],
+  "$defs": {
+    "hello": {
+      "description": "Engine handshake, the engine's first message.",
+      "type": "object",
+      "required": ["type", "protocol", "engine"],
+      "properties": {
+        "type": {"const": "hello"},
+        "protocol": {"const": 1},
+        "engine": {"type": "string", "minLength": 1},
+        "version": {"type": "string"},
+        "page_cost": {"type": "number", "minimum": 0},
+        "local": {"type": "boolean"}
+      }
+    },
+    "recognize": {
+      "description": "docstomd asks the engine to recognize pages of a PDF.",
+      "type": "object",
+      "required": ["type", "id", "pdf", "pages"],
+      "properties": {
+        "type": {"const": "recognize"},
+        "id": {"type": "string"},
+        "pdf": {"type": "string", "contentEncoding": "base64", "contentMediaType": "application/pdf"},
+        "pages": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true},
+        "password": {"type": "string"}
+      }
+    },
+    "result": {
+      "description": "The engine's answer to one request.",
+      "type": "object",
+      "required": ["type", "id", "pages"],
+      "properties": {
+        "type": {"const": "result"},
+        "id": {"type": "string"},
+        "pages": {"type": "array", "items": {"$ref": "#/$defs/page"}}
+      }
+    },
+    "page": {
+      "type": "object",
+      "required": ["page"],
+      "anyOf": [{"required": ["markdown"]}, {"required": ["lines"]}],
+      "properties": {
+        "page": {"type": "integer", "minimum": 1},
+        "markdown": {"type": "string"},
+        "lines": {"type": "array", "items": {"$ref": "#/$defs/line"}},
+        "width": {"type": "number", "exclusiveMinimum": 0, "description": "Width of the box coordinate space; omitted means PDF points."},
+        "height": {"type": "number", "exclusiveMinimum": 0, "description": "Height of the box coordinate space; omitted means PDF points."},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "line": {
+      "type": "object",
+      "required": ["text", "box"],
+      "properties": {
+        "text": {"type": "string", "description": "Line text in logical (reading) order."},
+        "box": {"$ref": "#/$defs/box"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "box": {
+      "description": "Line box: origin top-left of the visible page, y down; (x0,y0) top-left corner, (x1,y1) bottom-right corner.",
+      "type": "object",
+      "required": ["x0", "y0", "x1", "y1"],
+      "properties": {
+        "x0": {"type": "number"},
+        "y0": {"type": "number"},
+        "x1": {"type": "number"},
+        "y1": {"type": "number"}
+      }
+    },
+    "error": {
+      "description": "The engine could not answer a request.",
+      "type": "object",
+      "required": ["type", "id", "code", "message"],
+      "properties": {
+        "type": {"const": "error"},
+        "id": {"type": "string"},
+        "code": {"enum": ["unavailable", "failed"]},
+        "message": {"type": "string"}
+      }
+    }
+  }
+}

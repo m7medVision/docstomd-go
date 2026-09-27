@@ -26,6 +26,11 @@ const (
 	// CodeOCRProvider: any other OCR provider failure (server error,
 	// malformed response, transport failure).
 	CodeOCRProvider ErrorCode = "ocrProvider"
+	// CodeOCRUnavailable: no OCR engine, runtime or model can run here (the
+	// engine program is missing or reported a missing runtime or model).
+	CodeOCRUnavailable ErrorCode = "ocrUnavailable"
+	// CodeOCRProtocol: an external OCR engine broke the protocol.
+	CodeOCRProtocol ErrorCode = "ocrProtocol"
 	// CodeCanceled: the caller's context was canceled or its deadline passed.
 	CodeCanceled ErrorCode = "canceled"
 )
@@ -109,6 +114,10 @@ func mapOCRError(ctx context.Context, err error) error {
 		code = CodeOCRAuth
 	case errors.Is(err, ErrOCRRateLimited):
 		code = CodeOCRRateLimited
+	case errors.Is(err, ErrOCRUnavailable):
+		code = CodeOCRUnavailable
+	case errors.Is(err, ErrOCRProtocol):
+		code = CodeOCRProtocol
 	}
 	return &Error{Code: code, Message: err.Error(), err: err}
 }

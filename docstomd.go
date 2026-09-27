@@ -17,6 +17,7 @@ import (
 	"github.com/m7medVision/docstomd-go/internal/formats/xlsx"
 	"github.com/m7medVision/docstomd-go/internal/model"
 	pdfocr "github.com/m7medVision/docstomd-go/internal/ocr"
+	"github.com/m7medVision/docstomd-go/internal/ocr/external"
 	"github.com/m7medVision/docstomd-go/internal/ocr/mistral"
 	"github.com/m7medVision/docstomd-go/internal/opc"
 	pdfdetect "github.com/m7medVision/docstomd-go/internal/pdf/detect"
@@ -110,7 +111,25 @@ var (
 	ErrOCRMissingKey   = mistral.ErrMissingAPIKey
 	ErrOCRUnauthorized = mistral.ErrUnauthorized
 	ErrOCRRateLimited  = mistral.ErrRateLimited
+	// ErrOCRUnavailable: an external engine cannot run here.
+	ErrOCRUnavailable = external.ErrUnavailable
+	// ErrOCRProtocol: an external engine broke the OCR protocol.
+	ErrOCRProtocol = external.ErrProtocol
 )
+
+// ExternalOCRConfig says how to start an external OCR engine that speaks the
+// docstomd OCR protocol (docs/ocr-protocol.md).
+type ExternalOCRConfig = external.Config
+
+// ExternalOCRProvider drives an external OCR engine. One engine process
+// serves every request until Close.
+type ExternalOCRProvider = external.Provider
+
+// NewExternalOCRProvider returns a provider for an external engine; nothing
+// starts until the first request.
+func NewExternalOCRProvider(cfg ExternalOCRConfig) *ExternalOCRProvider {
+	return external.New(cfg)
+}
 
 // NewMistralProvider returns the Mistral OCR provider, the default when
 // OCROptions.Provider is nil.

@@ -12,7 +12,27 @@ import (
 	"testing"
 
 	"github.com/m7medVision/docstomd-go"
+	"github.com/m7medVision/docstomd-go/internal/ocr/external/externaltest"
 )
+
+// The test binary doubles as a stub OCR engine for exec: providers.
+func TestMain(m *testing.M) {
+	if mode := os.Getenv(externaltest.EnvMode); mode != "" {
+		os.Exit(externaltest.Stub(mode))
+	}
+	os.Exit(m.Run())
+}
+
+// stubEngine returns an exec: provider spec for the stub engine in mode.
+func stubEngine(t *testing.T, mode string) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(externaltest.EnvMode, mode)
+	return "exec:" + exe
+}
 
 func runCLI(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
@@ -225,11 +245,13 @@ func TestDetectContentWinsOverFileName(t *testing.T) {
 
 func TestExitCodeMapping(t *testing.T) {
 	cases := map[docstomd.ErrorCode]int{
-		docstomd.CodeNeedsOcr:    exitNeedsOcr,
-		docstomd.CodeUnsupported: exitUnsupported,
-		docstomd.CodeMalformed:   exitError,
-		docstomd.CodeEncrypted:   exitError,
-		docstomd.CodeIO:          exitError,
+		docstomd.CodeNeedsOcr:       exitNeedsOcr,
+		docstomd.CodeUnsupported:    exitUnsupported,
+		docstomd.CodeMalformed:      exitError,
+		docstomd.CodeEncrypted:      exitError,
+		docstomd.CodeIO:             exitError,
+		docstomd.CodeOCRUnavailable: exitOCRUnavailable,
+		docstomd.CodeOCRProtocol:    exitOCRUnavailable,
 	}
 	for code, want := range cases {
 		if got := exitCodeFor(code); got != want {
@@ -482,5 +504,61 @@ func TestConvertOCRDryRunNeedsOCRMode(t *testing.T) {
 				t.Errorf("stdout = %q, stderr = %q, want usage message only", stdout, stderr)
 			}
 		})
+	}
+}
+
+func TestConvertExecProvider(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	for _, mode := range []string{"markdown", "lines"} {
+		t.Run(mode, func(t *testing.T) {
+			code, stdout, stderr := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", stubEngine(t, mode), "--json", scanned)
+			if code != exitOK {
+				t.Fatalf("exit = %d, stderr:\n%s", code, stderr)
+			}
+			var result struct {
+				Markdown string                  `json:"markdown"`
+				OCRCost  *docstomd.OCRCostReport `json:"ocr_cost"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(result.Markdown, "page 1 of %PDF") || !strings.Contains(result.Markdown, "page 2 of %PDF") {
+				t.Errorf("markdown = %q", result.Markdown)
+			}
+			if result.OCRCost == nil || result.OCRCost.Provider != "stub" || result.OCRCost.PagesBilled != 2 {
+				t.Errorf("cost = %+v", result.OCRCost)
+			}
+		})
+	}
+}
+
+func TestConvertExecProviderFailuresExitFive(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	cases := []struct{ spec, code string }{
+		{"exec:/nonexistent/engine", "ocrUnavailable"},
+		{stubEngine(t, "malformed"), "ocrProtocol"},
+	}
+	for _, tc := range cases {
+		code, stdout, _ := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", tc.spec, "--json", scanned)
+		if code != exitOCRUnavailable {
+			t.Errorf("%s: exit = %d, want %d", tc.spec, code, exitOCRUnavailable)
+		}
+		if !strings.Contains(stdout, `"code":"`+tc.code+`"`) {
+			t.Errorf("%s: json missing %s:\n%s", tc.spec, tc.code, stdout)
+		}
+	}
+	t.Setenv(externaltest.EnvMode, "unavailable")
+	code, _, stderr := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", stubEngine(t, "unavailable"), scanned)
+	if code != exitOCRUnavailable || !strings.Contains(stderr, "ocrUnavailable") || !strings.Contains(stderr, "stub") {
+		t.Errorf("engine-reported unavailable: exit %d, stderr %q", code, stderr)
+	}
+}
+
+func TestConvertUnknownProviderIsUsage(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	for _, spec := range []string{"bogus", "exec:"} {
+		if code, _, _ := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", spec, scanned); code != exitUsage {
+			t.Errorf("%q: exit = %d, want %d", spec, code, exitUsage)
+		}
 	}
 }

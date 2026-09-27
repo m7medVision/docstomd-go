@@ -160,6 +160,10 @@ func (r *Router) Run(ctx context.Context, provider Provider, doc Document, mode 
 		r.Budget.mu.Unlock()
 		return nil, err
 	}
+	// External engines learn their name and price in their handshake, which
+	// only happens on the first call.
+	result.Cost.Provider = provider.Name()
+	result.Cost.EstimatedCostUSD = float64(len(pages)) * provider.EstPageCost()
 	byPage := map[int]PageResult{}
 	for _, page := range recognized {
 		byPage[page.Page] = page

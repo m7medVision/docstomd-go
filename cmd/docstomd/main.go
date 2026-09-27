@@ -24,6 +24,9 @@ const (
 	exitUnsupported = 2
 	exitNeedsOcr    = 3
 	exitError       = 4
+	// exitOCRUnavailable: OCR cannot run here or the engine broke the
+	// protocol (ocrUnavailable, ocrProtocol).
+	exitOCRUnavailable = 5
 )
 
 const usageText = `usage: docstomd <command> [flags] <file>
@@ -41,12 +44,15 @@ convert OCR flags (PDF):
   --ocr-dry-run          with --ocr auto|force, report billed pages and estimated cost without calling the provider
   --ocr-max-pages N      bill at most N pages per document
   --ocr-model ID         pin the Mistral OCR model (default mistral-ocr-latest)
-  OCR reads MISTRAL_API_KEY from the environment.
+  --ocr-provider P       mistral (default) or exec:<path> for any engine speaking
+                         the docstomd OCR protocol (docs/ocr-protocol.md)
+  Mistral reads MISTRAL_API_KEY from the environment.
 
 run 'docstomd <command> --help' for every flag.
 
 exit codes:
-  0 success, 1 usage, 2 unsupported input, 3 OCR required, 4 conversion error
+  0 success, 1 usage, 2 unsupported input, 3 OCR required, 4 conversion error,
+  5 OCR engine unavailable or broke the protocol
 `
 
 func main() {
@@ -91,6 +97,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	ocrDryRun := fs.Bool("ocr-dry-run", false, "with --ocr auto|force, report billed OCR pages and estimated cost without calling the provider")
 	ocrMaxPages := fs.Int("ocr-max-pages", 0, "maximum pages billed for OCR (0 = unlimited)")
 	ocrModel := fs.String("ocr-model", "", "Mistral OCR model id (default mistral-ocr-latest; pin a version for reproducibility)")
+	ocrProvider := fs.String("ocr-provider", "mistral", "OCR provider: mistral or exec:<path> (an engine speaking the docstomd OCR protocol)")
 	if wantsHelp(args) {
 		fs.SetOutput(stdout)
 		fs.Usage()
@@ -116,8 +123,16 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		}
 		return writeJSON(stdout, stderr, items)
 	}
+	provider, err := newProvider(*ocrProvider, *ocrModel)
+	if err != nil {
+		fmt.Fprintf(stderr, "docstomd convert: %v\n", err)
+		return exitUsage
+	}
+	if closer, ok := provider.(io.Closer); ok {
+		defer closer.Close()
+	}
 	opts := docstomd.Options{FileName: files[0], OCR: docstomd.OCROptions{
-		Provider:       docstomd.NewMistralProvider(docstomd.MistralOptions{Model: *ocrModel}),
+		Provider:       provider,
 		MaxPagesPerDoc: *ocrMaxPages,
 		DryRun:         *ocrDryRun,
 	}}
@@ -144,6 +159,21 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	fmt.Fprint(stdout, result.Markdown)
 	return exitOK
+}
+
+// newProvider resolves --ocr-provider.
+func newProvider(spec, model string) (docstomd.OCRProvider, error) {
+	switch {
+	case spec == "" || spec == "mistral":
+		return docstomd.NewMistralProvider(docstomd.MistralOptions{Model: model}), nil
+	case strings.HasPrefix(spec, "exec:"):
+		path := strings.TrimPrefix(spec, "exec:")
+		if path == "" {
+			return nil, errors.New("--ocr-provider exec: needs a program path")
+		}
+		return docstomd.NewExternalOCRProvider(docstomd.ExternalOCRConfig{Command: path}), nil
+	}
+	return nil, fmt.Errorf("unknown --ocr-provider %q (mistral, exec:<path>)", spec)
 }
 
 func runDetect(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -204,6 +234,7 @@ var flagsTakingValue = map[string]bool{
 	"--ocr": true, "-ocr": true,
 	"--ocr-max-pages": true, "-ocr-max-pages": true,
 	"--ocr-model": true, "-ocr-model": true,
+	"--ocr-provider": true, "-ocr-provider": true,
 }
 
 func reorderFlags(args []string) []string {
@@ -263,6 +294,8 @@ func exitCodeFor(code docstomd.ErrorCode) int {
 		return exitNeedsOcr
 	case docstomd.CodeUnsupported:
 		return exitUnsupported
+	case docstomd.CodeOCRUnavailable, docstomd.CodeOCRProtocol:
+		return exitOCRUnavailable
 	default:
 		return exitError
 	}
