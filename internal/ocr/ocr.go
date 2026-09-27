@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/m7medVision/docstomd-go/internal/pdf/markdown"
 	"github.com/m7medVision/docstomd-go/internal/pdf/quality"
 )
 
@@ -33,12 +34,19 @@ type Box struct {
 	Y1   float64 `json:"y1"`
 }
 
-// PageResult is one provider-recognized page.
+// PageResult is one provider-recognized page. A provider answers with
+// Markdown, or with Lines that the router renders through the PDF Markdown
+// rules; Markdown wins when both are set. Width and Height are the size of
+// the coordinate space the line boxes use (for example the page image in
+// pixels); zero means points.
 type PageResult struct {
 	Page       int     `json:"page"`
 	Markdown   string  `json:"markdown"`
 	Confidence float64 `json:"confidence"`
 	BBoxes     []Box   `json:"bboxes,omitempty"`
+	Lines      []Line  `json:"lines,omitempty"`
+	Width      float64 `json:"width,omitempty"`
+	Height     float64 `json:"height,omitempty"`
 }
 
 // Provider is the vendor seam: recognize a document's listed pages in one
@@ -80,6 +88,9 @@ type Router struct {
 	MaxPagesPerDoc int
 	MaxPagesPerRun int
 	Budget         *Budget
+	// Lines renders a line-based page result as Markdown; nil renders it
+	// with the default Markdown options, treating box coordinates as points.
+	Lines func(PageResult) string
 }
 
 // selectPages returns the pages the mode bills, after caps, plus the pages
@@ -159,6 +170,12 @@ func (r *Router) Run(ctx context.Context, provider Provider, doc Document, mode 
 			result.NeedsReview = append(result.NeedsReview, page)
 			continue
 		}
+		if strings.TrimSpace(ocrPage.Markdown) == "" && len(ocrPage.Lines) > 0 {
+			ocrPage.Markdown = r.renderLines(ocrPage)
+			if ocrPage.Confidence == 0 {
+				ocrPage.Confidence = linesConfidence(ocrPage.Lines)
+			}
+		}
 		if healthy(ocrPage) {
 			result.PageMarkdown[page] = ocrPage.Markdown
 		} else {
@@ -166,6 +183,13 @@ func (r *Router) Run(ctx context.Context, provider Provider, doc Document, mode 
 		}
 	}
 	return result, nil
+}
+
+func (r *Router) renderLines(page PageResult) string {
+	if r.Lines != nil {
+		return r.Lines(page)
+	}
+	return LinesMarkdown(page, 0, 0, markdown.DefaultOptions())
 }
 
 func healthy(page PageResult) bool {

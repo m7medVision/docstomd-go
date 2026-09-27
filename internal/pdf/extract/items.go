@@ -55,7 +55,10 @@ type Line struct {
 }
 
 type PageResult struct {
-	Items             []TextItem
+	Items []TextItem
+	// Width and Height are the visible page box size in points; item
+	// coordinates are relative to its lower-left corner.
+	Width, Height     float64
 	Rects             []Rect
 	Lines             []Line
 	HasEncodingIssues bool
