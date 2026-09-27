@@ -65,6 +65,19 @@ type CostReport struct {
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
 	DryRun           bool    `json:"dry_run"`
 	Truncated        bool    `json:"truncated_by_caps"`
+	// Local is set when the provider runs on this machine: nothing is
+	// billed, and PagesBilled counts the pages it processed.
+	Local bool `json:"local,omitempty"`
+}
+
+// LocalProvider is implemented by providers that may run on this machine.
+type LocalProvider interface {
+	Local() bool
+}
+
+func isLocal(p Provider) bool {
+	l, ok := p.(LocalProvider)
+	return ok && l.Local()
 }
 
 // Result carries the router outcome for fusion.
@@ -147,6 +160,7 @@ func (r *Router) Run(ctx context.Context, provider Provider, doc Document, mode 
 			EstimatedCostUSD: float64(len(pages)) * provider.EstPageCost(),
 			DryRun:           dryRun,
 			Truncated:        truncated,
+			Local:            isLocal(provider),
 		},
 		NeedsReview: dropped,
 	}
@@ -164,6 +178,7 @@ func (r *Router) Run(ctx context.Context, provider Provider, doc Document, mode 
 	// only happens on the first call.
 	result.Cost.Provider = provider.Name()
 	result.Cost.EstimatedCostUSD = float64(len(pages)) * provider.EstPageCost()
+	result.Cost.Local = isLocal(provider)
 	byPage := map[int]PageResult{}
 	for _, page := range recognized {
 		byPage[page.Page] = page

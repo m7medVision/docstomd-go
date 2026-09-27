@@ -64,6 +64,8 @@ type Config struct {
 	// Local marks an engine that runs on this machine; the engine's
 	// handshake can also declare it.
 	Local bool
+	// Hint is appended to errors when the engine program cannot be found.
+	Hint string
 }
 
 // Hello is the engine's handshake message.
@@ -296,6 +298,9 @@ func (p *Provider) start(ctx context.Context) error {
 	}
 	path, err := exec.LookPath(p.cfg.Command)
 	if err != nil {
+		if p.cfg.Hint != "" {
+			return fmt.Errorf("%w: %s: %v; %s", ErrUnavailable, p.nameLocked(), err, p.cfg.Hint)
+		}
 		return fmt.Errorf("%w: %s: %v", ErrUnavailable, p.nameLocked(), err)
 	}
 	cmd := exec.Command(path, p.cfg.Args...)

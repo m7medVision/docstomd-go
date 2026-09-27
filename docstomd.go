@@ -125,6 +125,15 @@ type ExternalOCRConfig = external.Config
 // serves every request until Close.
 type ExternalOCRProvider = external.Provider
 
+// NewLocalOCRProvider returns a provider for docstomd's local engine,
+// docstomd-ocr-local, found via $DOCSTOMD_OCR_LOCAL, next to the running
+// executable, then PATH. args are passed to the engine (for example
+// "--model", "pp-ocrv5-mobile"). A missing engine fails requests with
+// ErrOCRUnavailable and an install hint.
+func NewLocalOCRProvider(args ...string) *ExternalOCRProvider {
+	return external.New(external.LocalConfig(args...))
+}
+
 // NewExternalOCRProvider returns a provider for an external engine; nothing
 // starts until the first request.
 func NewExternalOCRProvider(cfg ExternalOCRConfig) *ExternalOCRProvider {

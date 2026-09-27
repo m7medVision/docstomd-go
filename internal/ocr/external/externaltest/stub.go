@@ -18,11 +18,21 @@ import (
 // Stub instead of its tests.
 const EnvMode = "DOCSTOMD_STUB"
 
+// EnvStarts, when set, names a file the stub appends "start\n" to each time
+// it starts, so tests can count engine processes.
+const EnvStarts = "DOCSTOMD_STUB_STARTS"
+
 // Stub speaks the OCR protocol on stdin/stdout in the named mode: markdown,
 // lines, single (answer once, exit), or a failure mode (nohello, badhello,
 // version2, malformed, extrapage, empty, wrongid, unavailable, failed, crash,
 // hang). It returns the process exit code.
 func Stub(mode string) int {
+	if path := os.Getenv(EnvStarts); path != "" {
+		if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			f.WriteString("start\n")
+			f.Close()
+		}
+	}
 	out := json.NewEncoder(os.Stdout)
 	switch mode {
 	case "nohello":
