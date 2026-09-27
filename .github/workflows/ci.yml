@@ -40,3 +40,21 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build ./...
+
+  ocr:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ocr
+    env:
+      CGO_ENABLED: "0"
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ocr/go.mod
+          cache-dependency-path: ocr/go.sum
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./...
