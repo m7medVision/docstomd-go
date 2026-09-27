@@ -190,3 +190,37 @@ class TestLiveRun:
         monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
         code = ocr_run.main(["--live", "--corpus", str(tmp_path), "--results", str(tmp_path / "r"), "--binary", "unused"])
         assert code == 2
+
+
+class TestLocal:
+    def test_word_f1(self):
+        assert ocr_run.word_f1("# Quarterly Report\n\nTotal: 5", "Quarterly report total 5") == pytest.approx(1.0)
+        assert ocr_run.word_f1("a b", "c d") == 0.0
+        assert ocr_run.word_f1("", "") == 1.0
+        assert ocr_run.word_f1("a b c d", "a b") == pytest.approx(2 * 0.5 * 1.0 / 1.5)
+
+    def test_local_run_skips_documents_over_budget_and_routed(self, tmp_path):
+        log = tmp_path / "log.jsonl"
+        binary = make_fake_binary(tmp_path, log)
+        rows = [
+            {"document": "big", "group": "corpus", "path": "big.pdf", "pages": 9, "routed_pages": 0},
+            {"document": "scan", "group": "corpus", "path": "scan.pdf", "pages": 1, "routed_pages": 1},
+            {"document": "small", "group": "corpus", "path": "small.pdf", "pages": 2, "routed_pages": 0},
+        ]
+        result = ocr_run.local_run(binary, rows, ["m1"], ["go"], page_limit=5, env_extra={})
+        assert [r["model"] for r in result] == ["m1"]
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        forced = [c for c in calls if c[c.index("--ocr") + 1] == "force"]
+        assert [c[-1] for c in forced] == ["small.pdf"]
+        assert forced[0][forced[0].index("--ocr-provider") + 1] == "local"
+        assert forced[0][forced[0].index("--ocr-model") + 1] == "m1"
+        assert result[0]["backend"] == "go" and result[0]["documents"] == 1
+
+    def test_report_has_local_table(self, tmp_path):
+        payload = {"mode": "dry", "aggregate": {}, "documents": [],
+                   "local": [{"model": "pp-ocrv5-mobile", "backend": "go", "documents": 1, "pages": 2, "seconds": 10.0,
+                              "pages_per_sec": 0.2, "text_f1": 0.97, "errors": []}],
+                   "local_vs_mistral": {"doc": {"mistral": 0.9, "local": 0.8}}}
+        report = ocr_run.write_report(tmp_path, payload).read_text(encoding="utf-8")
+        assert "pp-ocrv5-mobile" in report and "0.200" in report and "0.970" in report
+        assert "report only" in report

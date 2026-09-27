@@ -82,6 +82,26 @@ target fails when the mean or any single document's auto-minus-force
 delta falls below `-max-quality-drop` (default 0.02), or when a live
 conversion fails.
 
+Dry and live modes always pass `--ocr-provider mistral`, so the provider
+default (local when no key is set) never changes what they measure.
+
+Local mode benches `docstomd-ocr-local` (built from `ocr/` unless
+`--local-engine` names a binary) with installed models:
+
+```sh
+docstomd ocr install pp-ocrv5-mobile
+make bench-ocr BENCH_ARGS="--local --local-models pp-ocrv5-mobile,pp-ocrv5-server --local-backends go --local-pages 20"
+```
+
+For every model × backend it force-OCRs whole born-digital corpus documents
+(no routed pages) until `--local-pages` pages, and reports documents, pages,
+pages per second and text F1 (bag of words, case-folded) of the OCR Markdown
+against the document's own text layer. Documents larger than the remaining
+page budget are skipped rather than capped, because a capped document keeps
+native text on its other pages. With `--live` as well, the local engine also
+OCRs the routed documents Mistral scored, and both evaluator scores are
+listed side by side. That comparison is reported only and never gates.
+
 Output: `bench/results/ocr-report.md` and `bench/results/ocr-results.json`.
 
 ## Formats bench

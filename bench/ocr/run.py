@@ -1,9 +1,11 @@
-"""OCR bench: routing percentage, billed pages, estimated spend, auto vs force.
+"""OCR bench: routing percentage, billed pages, estimated spend, auto vs force,
+and the local engine's quality and speed.
 
 Usage:
   python3 bench/ocr/run.py                      # dry mode: whole corpus, zero provider calls
   python3 bench/ocr/run.py --live --page-budget 10
   python3 bench/ocr/run.py --corpus DIR         # any directory of PDFs
+  python3 bench/ocr/run.py --local --local-models pp-ocrv5-mobile --local-backends go
 
 Dry mode runs every corpus document plus the generated routing fixtures
 through `convert --ocr-dry-run` with the provider key removed from the
@@ -11,6 +13,12 @@ environment, so no call can reach the provider. Live mode (needs
 MISTRAL_API_KEY) OCRs the routed subset in auto and force modes under a
 hard page budget and scores both against the corpus ground truth with the
 corpus's real evaluator.
+
+Local mode (--local) force-OCRs born-digital corpus pages with
+docstomd-ocr-local for every model × backend and scores the OCR text against
+the page's own text layer (word F1), with pages per second. With --live too,
+the local engine also OCRs the routed subset and its evaluator score is shown
+next to Mistral's; that comparison is reported, never gated.
 """
 
 from __future__ import annotations
@@ -19,9 +27,12 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
+import time
+from collections import Counter
 from pathlib import Path
 
 OCR_DIR = Path(__file__).resolve().parent
@@ -41,9 +52,11 @@ def load_pdf_bench():
     return module
 
 
-def convert(binary: Path, pdf: Path, mode: str, *, dry: bool, max_pages: int = 0) -> dict:
-    command = [str(binary), "convert", "--json", "--ocr", mode]
+def convert(binary: Path, pdf: Path, mode: str, *, dry: bool, max_pages: int = 0,
+            provider: str = "mistral", extra: list[str] | None = None, env_extra: dict | None = None) -> dict:
+    command = [str(binary), "convert", "--json", "--ocr", mode, "--ocr-provider", provider] + (extra or [])
     env = dict(os.environ)
+    env.update(env_extra or {})
     if dry:
         command.append("--ocr-dry-run")
         env.pop(KEY_ENV, None)
@@ -233,6 +246,85 @@ def format_aggregate(label: str, totals: dict) -> str:
     )
 
 
+WORD = re.compile(r"\w+", re.UNICODE)
+
+
+def word_f1(predicted: str, reference: str) -> float:
+    """Bag-of-words F1 between two texts, case-folded; Markdown syntax and
+    reading order do not matter."""
+    p = Counter(w.casefold() for w in WORD.findall(predicted))
+    r = Counter(w.casefold() for w in WORD.findall(reference))
+    if not p and not r:
+        return 1.0
+    overlap = sum((p & r).values())
+    if not overlap:
+        return 0.0
+    precision = overlap / sum(p.values())
+    recall = overlap / sum(r.values())
+    return 2 * precision * recall / (precision + recall)
+
+
+def local_env(engine: Path | None, models_root: Path | None) -> dict:
+    env = {}
+    if engine:
+        env["DOCSTOMD_OCR_LOCAL"] = str(engine)
+    if models_root:
+        env["DOCSTOMD_OCR_MODELS"] = str(models_root)
+    return env
+
+
+def local_run(binary: Path, rows: list[dict], models: list[str], backends: list[str], page_limit: int,
+              env_extra: dict) -> list[dict]:
+    """Force-OCRs whole born-digital documents (no routed pages) until
+    page_limit pages per model × backend; scores each OCR text against the
+    document's own text layer and times it. Documents that do not fit the
+    remaining budget are skipped: a capped document would keep native text
+    on its uncapped pages and inflate the score."""
+    born_digital = [row for row in rows if row["group"] == "corpus" and "error" not in row and not row["routed_pages"]]
+    results = []
+    for model in models:
+        for backend in backends:
+            pages, seconds, scores, errors = 0, 0.0, [], []
+            for row in born_digital:
+                if pages + row["pages"] > page_limit:
+                    continue
+                pdf = Path(row["path"])
+                native = convert(binary, pdf, "off", dry=False)
+                started = time.monotonic()
+                ocr = convert(binary, pdf, "force", dry=False, provider="local",
+                              extra=["--ocr-model", model, "--ocr-backend", backend], env_extra=env_extra)
+                elapsed = time.monotonic() - started
+                if "error" in ocr or "error" in native:
+                    errors.append(f"{row['document']}: {ocr.get('error') or native.get('error')}")
+                    continue
+                pages += (ocr.get("ocr_cost") or {}).get("pages_billed", 0)
+                seconds += elapsed
+                scores.append(word_f1(ocr.get("markdown", ""), native.get("markdown", "")))
+            results.append({
+                "model": model,
+                "backend": backend,
+                "documents": len(scores),
+                "pages": pages,
+                "seconds": seconds,
+                "pages_per_sec": pages / seconds if seconds else 0.0,
+                "text_f1": statistics.fmean(scores) if scores else None,
+                "errors": errors,
+            })
+    return results
+
+
+def format_local_table(rows: list[dict]) -> str:
+    header = f"{'model':<26} {'backend':<8} {'docs':>5} {'pages':>6} {'pages/s':>8} {'text F1':>8}"
+    lines = [header, "-" * len(header)]
+    for row in rows:
+        f1 = "n/a" if row["text_f1"] is None else f"{row['text_f1']:.3f}"
+        lines.append(f"{row['model']:<26} {row['backend']:<8} {row['documents']:>5} {row['pages']:>6} "
+                     f"{row['pages_per_sec']:>8.3f} {f1:>8}")
+        for error in row["errors"]:
+            lines.append(f"  error: {error}")
+    return "\n".join(lines)
+
+
 def write_report(results: Path, payload: dict) -> Path:
     results.mkdir(parents=True, exist_ok=True)
     body = ["# OCR bench report", "", f"- mode: {payload['mode']}"]
@@ -253,6 +345,15 @@ def write_report(results: Path, payload: dict) -> Path:
             body.append(f"- auto vs force quality delta (overall, mean): {'n/a' if mean is None else f'{mean:+.4f}'}")
             for doc_id, scores in sorted(quality["documents"].items()):
                 body.append(f"  - {doc_id}: auto={scores.get('auto')} force={scores.get('force')}")
+    local = payload.get("local")
+    if local:
+        body += ["", "## Local OCR (born-digital pages, text F1 against the text layer)", "", "```",
+                 format_local_table(local), "```"]
+    comparison = payload.get("local_vs_mistral")
+    if comparison:
+        body += ["", "## Local vs Mistral on the scanned subset (report only, never gates)", ""]
+        for doc_id, scores in sorted(comparison.items()):
+            body.append(f"- {doc_id}: mistral={scores.get('mistral')} local={scores.get('local')}")
     if payload.get("gate_failures"):
         body += ["", "## Gate failures", ""] + [f"- {failure}" for failure in payload["gate_failures"]]
     body += ["", "## Documents", "", "```", format_documents_table(payload["documents"]), "```"]
@@ -260,6 +361,42 @@ def write_report(results: Path, payload: dict) -> Path:
     report.write_text("\n".join(body) + "\n", encoding="utf-8")
     (results / "ocr-results.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return report
+
+
+def build_engine() -> Path:
+    """Builds docstomd-ocr-local from the ocr/ module."""
+    repo = BENCH_DIR.parent
+    engine = repo / "ocr" / "cmd" / "docstomd-ocr-local" / "docstomd-ocr-local"
+    env = dict(os.environ, CGO_ENABLED="0", GOWORK="off")
+    subprocess.run(["go", "build", "-o", str(engine), "./cmd/docstomd-ocr-local"], cwd=repo / "ocr", env=env, check=True)
+    return engine
+
+
+def local_vs_mistral(binary: Path, rows: list[dict], scored: list[str], out: Path, python: Path, corpus_repo: Path,
+                     model: str, env_extra: dict, quality: dict) -> dict:
+    """OCRs the documents Mistral scored with the local engine (auto mode) and
+    scores both with the corpus evaluator. Reported only."""
+    label = "docstomd-ocr-local"
+    (out / label / "markdown").mkdir(parents=True, exist_ok=True)
+    by_name = {row["document"]: row for row in rows}
+    comparison = {}
+    for doc_id in scored:
+        payload = convert(binary, Path(by_name[doc_id]["path"]), "auto", dry=False, provider="local",
+                          extra=["--ocr-model", model], env_extra=env_extra)
+        entry = {"mistral": quality["documents"].get(doc_id, {}).get("auto")}
+        if "error" in payload:
+            entry["local"] = payload["error"]
+            comparison[doc_id] = entry
+            continue
+        (out / label / "markdown" / f"{doc_id}.md").write_text(payload.get("markdown", ""), encoding="utf-8")
+        subprocess.run([str(python), "src/evaluator.py", "--prediction-root", str(out), "--engine", label,
+                        "--doc-id", doc_id, "--log-level", "ERROR"], cwd=corpus_repo, check=True, stdout=subprocess.DEVNULL)
+        evaluation = json.loads((out / label / "evaluation.json").read_text(encoding="utf-8"))
+        for document in evaluation.get("documents", []):
+            if document["document_id"] == doc_id:
+                entry["local"] = document.get("scores", {}).get("overall")
+        comparison[doc_id] = entry
+    return comparison
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -270,6 +407,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--live", action="store_true", help="call the provider (bills pages)")
     parser.add_argument("--page-budget", type=int, default=10)
     parser.add_argument("--max-quality-drop", type=float, default=0.02)
+    parser.add_argument("--local", action="store_true", help="bench the local engine (docstomd-ocr-local)")
+    parser.add_argument("--local-models", default="pp-ocrv5-mobile", help="comma-separated installed model ids")
+    parser.add_argument("--local-backends", default="go", help="comma-separated backends")
+    parser.add_argument("--local-pages", type=int, default=10, help="born-digital pages per model × backend")
+    parser.add_argument("--local-engine", type=Path, help="docstomd-ocr-local binary (default: build it)")
+    parser.add_argument("--models-root", type=Path, help="installed models directory (default: the engine's)")
     args = parser.parse_args(argv)
 
     if args.live and not os.environ.get(KEY_ENV):
@@ -299,6 +442,13 @@ def main(argv: list[str] | None = None) -> int:
         "documents": rows,
     }
 
+    env_extra = {}
+    if args.local:
+        engine = args.local_engine or build_engine()
+        env_extra = local_env(engine, args.models_root)
+        payload["local"] = local_run(binary, corpus_rows, args.local_models.split(","), args.local_backends.split(","),
+                                     args.local_pages, env_extra)
+
     if args.live:
         out = args.results / "ocr-predictions"
         live = live_run(binary, corpus_rows, args.page_budget, out)
@@ -309,6 +459,9 @@ def main(argv: list[str] | None = None) -> int:
             summary = quality_summary(evaluate_quality(python, corpus.parent, out, scored))
             payload["quality"] = summary
             failures += quality_gate_failures(summary, args.max_quality_drop)
+        if args.local and scored:
+            payload["local_vs_mistral"] = local_vs_mistral(binary, corpus_rows, scored, out, python, corpus.parent,
+                                                           args.local_models.split(",")[0], env_extra, payload["quality"])
         for entry in live["documents"]:
             for engine in ENGINES:
                 if "error" in entry.get(engine, {}):
