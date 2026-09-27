@@ -62,6 +62,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	fs.StringVar(&opts.modelsRoot, "models", "", "directory holding installed models (default $DOCSTOMD_OCR_MODELS, else the user data directory)")
 	fs.StringVar(&opts.backend, "backend", "auto", "inference backend: "+strings.Join(backend.Names, ", "))
 	fs.Var(&opts.catalogs, "catalog", "extra model catalog (file or https URL); repeatable")
+	fs.IntVar(&opts.renderDPI, "render-dpi", 200, "resolution for pages rendered with pdftoppm (pages without an extractable image)")
 	showVersion := fs.Bool("version", false, "print the version")
 	if err := fs.Parse(args); err != nil {
 		return 1
@@ -72,6 +73,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "docstomd-ocr-local: unexpected argument %q\n", fs.Arg(0))
+		return 1
+	}
+	if opts.renderDPI < 36 || opts.renderDPI > 600 {
+		fmt.Fprintln(stderr, "docstomd-ocr-local: --render-dpi must be between 36 and 600")
 		return 1
 	}
 	s := &server{opts: opts, stderr: stderr}
@@ -95,6 +100,7 @@ type options struct {
 	modelsRoot string
 	backend    string
 	catalogs   stringList
+	renderDPI  int
 }
 
 // stringList is a repeatable string flag.
@@ -228,6 +234,13 @@ func (s *server) recognize(ctx context.Context, req request) ([]pageResult, erro
 			return nil, ctx.Err()
 		}
 		page, err := doc.Extract(n)
+		if errors.Is(err, pageimage.ErrNoImage) {
+			// CCITT, JBIG2, JPEG 2000 or vector-drawn text: render instead.
+			page, err = doc.Render(ctx, pdf, n, s.opts.renderDPI, req.Password)
+			if errors.Is(err, pageimage.ErrNoRenderer) {
+				err = fmt.Errorf("no extractable image and pdftoppm (poppler) is not installed to render it")
+			}
+		}
 		if err != nil {
 			// Unanswered pages keep their native text and are flagged for
 			// review by docstomd.

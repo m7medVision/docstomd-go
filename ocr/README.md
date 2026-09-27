@@ -15,7 +15,7 @@ docstomd convert --ocr auto --ocr-provider local scan.pdf
 | Package | What it does |
 |---|---|
 | `cmd/docstomd-ocr-local` | The engine binary: protocol session, model selection |
-| `pageimage` | Extracts a scanned page's image in pure Go (JPEG, Flate) with its placement; reusable by adapter authors |
+| `pageimage` | Extracts a scanned page's image in pure Go (JPEG, Flate) with its placement, or renders it with `pdftoppm` (CCITT, JBIG2, vector text); reusable by adapter authors |
 | `engine` | Manifest-driven pipeline: detect → orient → recognize (DB post-processing, CTC decoding), denormal weights flushed at load |
 | `backend` | GoMLX backend selection (`go`, `auto`) |
 | `catalog` | Where models are installed and which are available |

@@ -1,7 +1,9 @@
 // Command ocrfixtures regenerates the scanned-page fixtures in testdata/ocr:
 // it typesets project-authored text into a born-digital PDF, renders it with
 // pdftoppm (poppler) and wraps the image into image-only PDFs, one per image
-// encoding. Run from the repository root:
+// encoding (JPEG, Flate, and CCITT G4 through ImageMagick), plus a page whose
+// text is drawn as vector outlines (through Ghostscript). Run from the
+// repository root:
 //
 //	go run ./tools/ocrfixtures
 package main
@@ -72,6 +74,9 @@ func main() {
 			log.Fatal(err)
 		}
 		write(filepath.Join(out, fx.name+"-flate.pdf"), imagePDF(fx, img.Bounds(), "/FlateDecode", flate.Bytes()))
+		if err := derived(fx, out); err != nil {
+			log.Fatal(err)
+		}
 		var text []string
 		for _, ln := range fx.lines {
 			text = append(text, ln.text)
@@ -87,19 +92,51 @@ func write(path string, data []byte) {
 	fmt.Println("wrote", path)
 }
 
-// render typesets the fixture in Helvetica and rasterizes it to 8-bit gray.
-func render(fx fixture) (*image.Gray, error) {
+// derived writes the CCITT and vector-outline variants, which need
+// ImageMagick and Ghostscript.
+func derived(fx fixture, out string) error {
+	dir, err := os.MkdirTemp("", "ocrfixtures")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	src := filepath.Join(dir, "text.pdf")
+	if err := os.WriteFile(src, textPDF(fx), 0o644); err != nil {
+		return err
+	}
+	png := filepath.Join(dir, "page.png")
+	steps := [][]string{
+		{"pdftoppm", "-r", fmt.Sprint(fx.dpi), "-gray", "-png", "-singlefile", src, filepath.Join(dir, "page")},
+		{"magick", png, "-threshold", "60%", "-compress", "Group4", "-density", fmt.Sprint(fx.dpi), "-units", "PixelsPerInch", filepath.Join(out, fx.name+"-ccitt.pdf")},
+		{"gs", "-q", "-dSAFER", "-dNoOutputFonts", "-sDEVICE=pdfwrite", "-o", filepath.Join(out, fx.name+"-vector.pdf"), src},
+	}
+	for _, step := range steps {
+		if b, err := exec.Command(step[0], step[1:]...).CombinedOutput(); err != nil {
+			return fmt.Errorf("%s: %v: %s", step[0], err, b)
+		}
+	}
+	fmt.Println("wrote", filepath.Join(out, fx.name+"-ccitt.pdf"), filepath.Join(out, fx.name+"-vector.pdf"))
+	return nil
+}
+
+// textPDF typesets the fixture in Helvetica.
+func textPDF(fx fixture) []byte {
 	var content strings.Builder
 	for _, ln := range fx.lines {
 		fmt.Fprintf(&content, "BT /F1 %g Tf %g %g Td (%s) Tj ET\n", ln.size, ln.x, fx.h-ln.y, ln.text)
 	}
-	src := buildPDF([]string{
+	return buildPDF([]string{
 		"<< /Type /Catalog /Pages 2 0 R >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		fmt.Sprintf("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 %g %g] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>", fx.w, fx.h),
 		stream("", []byte(content.String())),
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
 	})
+}
+
+// render typesets the fixture in Helvetica and rasterizes it to 8-bit gray.
+func render(fx fixture) (*image.Gray, error) {
+	src := textPDF(fx)
 	dir, err := os.MkdirTemp("", "ocrfixtures")
 	if err != nil {
 		return nil, err

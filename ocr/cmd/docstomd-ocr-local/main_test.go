@@ -151,6 +151,18 @@ func TestConvertEndToEnd(t *testing.T) {
 			t.Errorf("%s: cost %+v needs_review %v", fixture, result.OCRCost, result.NeedsReview)
 		}
 	}
+	// A CCITT page with no renderer installed: the document still converts
+	// and the page is flagged for review.
+	cmd := exec.Command(filepath.Join(bin, "docstomd"), "convert", "--ocr", "auto", "--ocr-provider", "local", "--json",
+		filepath.Join(ocrtest.RepoRoot(), "testdata", "ocr", "field-report-ccitt.pdf"))
+	cmd.Env = append(os.Environ(), "DOCSTOMD_OCR_MODELS="+models, "XDG_CONFIG_HOME="+t.TempDir(), "PATH=")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("ccitt without pdftoppm: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), `"needs_review":[1]`) {
+		t.Errorf("ccitt without pdftoppm: want needs_review [1]:\n%s", out)
+	}
 }
 
 func TestInstalledModelsWorkOffline(t *testing.T) {
@@ -195,5 +207,48 @@ func TestListShowsCatalogAndInstalled(t *testing.T) {
 	}
 	if len(entries) < 2 || entries[0].ID != "pp-ocrv5-mobile" || !entries[0].Installed || entries[1].Installed || entries[0].License != "Apache-2.0" {
 		t.Errorf("list = %+v", entries)
+	}
+}
+
+// TestPagesWithoutImages: CCITT and vector-drawn pages are rendered with
+// pdftoppm when it is installed; without it they stay unanswered, which
+// docstomd turns into needs_review with the native text kept.
+func TestPagesWithoutImages(t *testing.T) {
+	dir := ocrtest.ModelDir(t, "pp-ocrv5-mobile")
+	want := ocrtest.Golden(t, "field-report")
+	for _, fixture := range []string{"field-report-ccitt.pdf", "field-report-vector.pdf"} {
+		pdf := base64.StdEncoding.EncodeToString(ocrtest.Fixture(t, fixture))
+		t.Run(fixture+"/pdftoppm", func(t *testing.T) {
+			if _, err := exec.LookPath("pdftoppm"); err != nil {
+				t.Skip("pdftoppm not installed")
+			}
+			send, _ := session(t, "--model-dir", dir, "--backend", "go")
+			resp := send(map[string]any{"type": "recognize", "id": "1", "pdf": pdf, "pages": []int{1}})
+			pages, _ := resp["pages"].([]any)
+			if len(pages) != 1 {
+				t.Fatalf("resp = %v", resp)
+			}
+			var got []string
+			for _, l := range pages[0].(map[string]any)["lines"].([]any) {
+				got = append(got, strings.ReplaceAll(l.(map[string]any)["text"].(string), " ", ""))
+			}
+			for _, w := range want {
+				found := false
+				for _, g := range got {
+					found = found || g == strings.ReplaceAll(w.Text, " ", "")
+				}
+				if !found {
+					t.Errorf("missing line %q in %q", w.Text, got)
+				}
+			}
+		})
+		t.Run(fixture+"/no-renderer", func(t *testing.T) {
+			t.Setenv("PATH", "")
+			send, _ := session(t, "--model-dir", dir, "--backend", "go")
+			resp := send(map[string]any{"type": "recognize", "id": "1", "pdf": pdf, "pages": []int{1}})
+			if pages, _ := resp["pages"].([]any); resp["type"] != "result" || len(pages) != 0 {
+				t.Errorf("resp = %v, want a result with the page unanswered", resp)
+			}
+		})
 	}
 }
