@@ -3,6 +3,7 @@ package parse
 import (
 	"bytes"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -33,10 +34,27 @@ func malformed(detail string) error {
 	return &MalformedError{Detail: detail}
 }
 
+// maxObjectDepth bounds nested arrays and dictionaries, as PDFium does, so a
+// run of "[" or "<<" can't recurse the parser until the stack overflows.
+const maxObjectDepth = 64
+
 type parser struct {
-	data []byte
-	pos  int
+	data  []byte
+	pos   int
+	depth int
 }
+
+// enter records one more level of array or dictionary nesting; the caller
+// must call leave when that level closes.
+func (p *parser) enter() error {
+	if p.depth >= maxObjectDepth {
+		return malformed("objects nested deeper than " + strconv.Itoa(maxObjectDepth))
+	}
+	p.depth++
+	return nil
+}
+
+func (p *parser) leave() { p.depth-- }
 
 func (p *parser) skipWhitespace() {
 	for p.pos < len(p.data) {
@@ -94,23 +112,7 @@ func (p *parser) object() (any, error) {
 		}
 		return p.hexString()
 	case c == '[':
-		p.pos++
-		arr := []any{}
-		for {
-			p.skipWhitespace()
-			if p.pos >= len(p.data) {
-				return nil, malformed("unterminated array")
-			}
-			if p.data[p.pos] == ']' {
-				p.pos++
-				return arr, nil
-			}
-			item, err := p.object()
-			if err != nil {
-				return nil, err
-			}
-			arr = append(arr, item)
-		}
+		return p.array()
 	case c == '/':
 		p.pos++
 		return p.name(), nil
@@ -130,6 +132,30 @@ func (p *parser) object() (any, error) {
 		return nil, nil
 	}
 	return nil, malformed("unexpected token " + strconv.Quote(tok))
+}
+
+func (p *parser) array() (any, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.leave()
+	p.pos++
+	arr := []any{}
+	for {
+		p.skipWhitespace()
+		if p.pos >= len(p.data) {
+			return nil, malformed("unterminated array")
+		}
+		if p.data[p.pos] == ']' {
+			p.pos++
+			return arr, nil
+		}
+		item, err := p.object()
+		if err != nil {
+			return nil, err
+		}
+		arr = append(arr, item)
+	}
 }
 
 func (p *parser) numberOrRef() (any, error) {
@@ -217,7 +243,7 @@ func (p *parser) number() (any, error) {
 		}
 	}
 	f, err := strconv.ParseFloat(tok, 64)
-	if err != nil {
+	if err != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 		return nil, malformed("bad number " + strconv.Quote(tok))
 	}
 	return f, nil
@@ -347,6 +373,10 @@ func (p *parser) hexString() (any, error) {
 }
 
 func (p *parser) dict() (any, error) {
+	if err := p.enter(); err != nil {
+		return nil, err
+	}
+	defer p.leave()
 	p.pos += 2
 	d := map[string]any{}
 	for {

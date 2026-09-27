@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"io"
+	"strconv"
 )
 
 func (d *Document) decodeStream(stm *Stream, dict map[string]any) ([]byte, error) {
@@ -66,6 +67,19 @@ type inflater interface {
 	zlib.Resetter
 }
 
+// Flate output per stream is capped at flateExpansion times the file size,
+// kept between flateMinLimit and flateMaxLimit, so a small file can't inflate
+// (and cache) gigabytes.
+const (
+	flateExpansion = 100
+	flateMinLimit  = 16 << 20
+	flateMaxLimit  = 256 << 20
+)
+
+func flateLimit(fileSize int) int64 {
+	return min(max(int64(fileSize)*flateExpansion, flateMinLimit), flateMaxLimit)
+}
+
 // flateDecode reuses one zlib reader per document; allocating its window
 // per stream dominated decode cost.
 func (d *Document) flateDecode(data []byte) ([]byte, error) {
@@ -79,7 +93,11 @@ func (d *Document) flateDecode(data []byte) ([]byte, error) {
 	} else if err := d.inflater.Reset(src, nil); err != nil {
 		return nil, malformed("bad FlateDecode stream")
 	}
-	out, err := io.ReadAll(io.LimitReader(d.inflater, 1<<31))
+	limit := flateLimit(len(d.data))
+	out, err := io.ReadAll(io.LimitReader(d.inflater, limit+1))
+	if int64(len(out)) > limit {
+		return nil, malformed("FlateDecode output exceeds the " + strconv.FormatInt(limit, 10) + "-byte limit")
+	}
 	if err != nil && len(out) == 0 {
 		return nil, malformed("bad FlateDecode data")
 	}
@@ -91,29 +109,45 @@ func applyPredictor(data []byte, parm map[string]any) ([]byte, error) {
 		return data, nil
 	}
 	predictor, ok := parm["Predictor"].(int64)
-	if !ok || predictor < 10 {
+	// 10-15 are the PNG predictors; every one tags each row with its own
+	// filter type, so they share one decoder.
+	if !ok || predictor < 10 || predictor > 15 {
 		return data, nil
 	}
-	colors := 1
+	colors := int64(1)
 	if n, ok := parm["Colors"].(int64); ok {
-		colors = int(n)
+		colors = n
 	}
-	bpc := 8
+	bpc := int64(8)
 	if n, ok := parm["BitsPerComponent"].(int64); ok {
-		bpc = int(n)
+		bpc = n
 	}
-	columns := 1
+	columns := int64(1)
 	if n, ok := parm["Columns"].(int64); ok {
-		columns = int(n)
+		columns = n
 	}
-	rowLen := (colors*bpc*columns + 7) / 8
-	if rowLen == 0 {
-		return data, nil
+	if colors < 1 || colors > 32 {
+		return nil, malformed("predictor Colors out of range")
 	}
-	if predictor != 12 {
-		return data, nil
+	switch bpc {
+	case 1, 2, 4, 8, 16:
+	default:
+		return nil, malformed("predictor BitsPerComponent out of range")
 	}
-	bpp := (colors*bpc + 7) / 8
+	if columns < 1 {
+		return nil, malformed("predictor Columns out of range")
+	}
+	// Rows longer than the data can't decode; checking columns first keeps
+	// the row-length product from overflowing.
+	if columns > int64(len(data))*8 {
+		return []byte{}, nil
+	}
+	rowLen64 := (colors*bpc*columns + 7) / 8
+	if rowLen64 >= int64(len(data)) {
+		return []byte{}, nil
+	}
+	rowLen := int(rowLen64)
+	bpp := int((colors*bpc + 7) / 8)
 	out := make([]byte, 0, len(data))
 	prev := make([]byte, rowLen)
 	pos := 0

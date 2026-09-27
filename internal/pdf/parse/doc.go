@@ -234,6 +234,9 @@ func (d *Document) loadClassicXRef(p *parser) (int64, map[string]any, error) {
 				return 0, nil, malformed("truncated xref table")
 			}
 			kind := kindTok[0]
+			if kind == 'n' && (off < 0 || off >= int64(len(d.data))) {
+				return 0, nil, malformed("xref entry offset " + offTok + " outside the file")
+			}
 			objNum := start + i
 			if _, exists := d.xref[objNum]; exists && d.xref[objNum].kind == 'n' {
 				continue
@@ -262,9 +265,15 @@ func (d *Document) loadXRefStream(stm *Stream, dict map[string]any) (int64, map[
 	}
 	widths := make([]int, 3)
 	for i := 0; i < 3; i++ {
-		if n, ok := wArr[i].(int64); ok {
-			widths[i] = int(n)
+		n, ok := wArr[i].(int64)
+		if !ok || n < 0 || n > 8 {
+			return 0, nil, malformed("xref stream W entry out of range")
 		}
+		widths[i] = int(n)
+	}
+	entrySize := widths[0] + widths[1] + widths[2]
+	if entrySize == 0 {
+		return 0, nil, malformed("xref stream W entries are all zero")
 	}
 	var index []int
 	if arr, ok := dict["Index"].([]any); ok {
@@ -275,7 +284,7 @@ func (d *Document) loadXRefStream(stm *Stream, dict map[string]any) (int64, map[
 		}
 	}
 	if len(index) == 0 {
-		index = []int{0, len(data) / max(1, widths[0]+widths[1]+widths[2])}
+		index = []int{0, len(data) / entrySize}
 	}
 	pos := 0
 	readField := func(width int) int64 {
@@ -289,10 +298,14 @@ func (d *Document) loadXRefStream(stm *Stream, dict map[string]any) (int64, map[
 	for pair := 0; pair+1 < len(index); pair += 2 {
 		start, count := index[pair], index[pair+1]
 		for i := 0; i < count; i++ {
-			if pos+widths[0]+widths[1]+widths[2] > len(data) {
+			if pos+entrySize > len(data) {
 				return 0, nil, malformed("truncated xref stream")
 			}
-			t := readField(widths[0])
+			// With W[0] = 0 the type field is absent and defaults to 1 (in use).
+			t := int64(1)
+			if widths[0] > 0 {
+				t = readField(widths[0])
+			}
 			f2 := readField(widths[1])
 			f3 := readField(widths[2])
 			objNum := start + i
@@ -333,6 +346,11 @@ func (d *Document) GetObject(num int) (any, error) {
 	}
 	var obj any
 	if entry.objStream > 0 {
+		// Object streams can't themselves live in object streams; refusing
+		// that also stops N-in-N and N-in-M-in-N loops from recursing.
+		if container := d.xref[entry.objStream]; container.objStream > 0 {
+			return nil, malformed("object stream " + strconv.Itoa(entry.objStream) + " is inside another object stream")
+		}
 		stmObj, err := d.GetObject(entry.objStream)
 		if err != nil {
 			return nil, err
@@ -346,6 +364,9 @@ func (d *Document) GetObject(num int) (any, error) {
 			return nil, err
 		}
 	} else {
+		if entry.offset < 0 || entry.offset >= int64(len(d.data)) {
+			return nil, malformed("object " + strconv.Itoa(num) + " offset outside the file")
+		}
 		p := parser{data: d.data, pos: int(entry.offset)}
 		num2, _, _, _, body, err := p.indirectObject()
 		if err != nil {
@@ -370,9 +391,17 @@ func (d *Document) objectFromStream(stm *Stream, index int) (any, error) {
 	if !ok {
 		return nil, malformed("object stream missing N")
 	}
+	// Each header pair takes at least four bytes ("1 0 "), so a count past
+	// half the stream length can't be real and would only size a huge slice.
+	if n < 0 || n > int64(len(data))/2 {
+		return nil, malformed("object stream N out of range")
+	}
 	first, ok := dict["First"].(int64)
 	if !ok {
 		return nil, malformed("object stream missing First")
+	}
+	if first < 0 || first > int64(len(data)) {
+		return nil, malformed("object stream First out of range")
 	}
 	p := parser{data: data, pos: 0}
 	type pair struct{ num, offset int }
@@ -396,10 +425,14 @@ func (d *Document) objectFromStream(stm *Stream, index int) (any, error) {
 		}
 		pairs = append(pairs, pair{num, off})
 	}
-	if index >= len(pairs) {
+	if index < 0 || index >= len(pairs) {
 		return nil, malformed("object stream index out of range")
 	}
-	op := parser{data: data, pos: int(first) + pairs[index].offset}
+	pos := int(first) + pairs[index].offset
+	if pairs[index].offset < 0 || pos > len(data) {
+		return nil, malformed("object stream entry offset out of range")
+	}
+	op := parser{data: data, pos: pos}
 	return op.object()
 }
 
@@ -429,10 +462,20 @@ func (d *Document) buildPageTree() error {
 	if !ok {
 		return malformed("catalog missing Pages")
 	}
-	return d.walkPages(pagesRef, nil)
+	return d.walkPages(pagesRef, map[int]bool{}, map[int]bool{})
 }
 
-func (d *Document) walkPages(node Ref, parentChain []Ref) error {
+// walkPages appends the leaves under node in document order. A node that is
+// its own ancestor makes the tree infinite, so it is malformed; a node reached
+// a second time by another path is skipped so shared subtrees can't multiply.
+func (d *Document) walkPages(node Ref, ancestors, visited map[int]bool) error {
+	if ancestors[node.Num] {
+		return malformed("page tree node " + strconv.Itoa(node.Num) + " is its own ancestor")
+	}
+	if visited[node.Num] {
+		return nil
+	}
+	visited[node.Num] = true
 	obj, err := d.GetObject(node.Num)
 	if err != nil {
 		return err
@@ -442,7 +485,6 @@ func (d *Document) walkPages(node Ref, parentChain []Ref) error {
 		return malformed("bad page tree node")
 	}
 	d.pageDict[node.Num] = dict
-	chain := append(append([]Ref{}, parentChain...), node)
 	switch dict["Type"] {
 	case Name("Page"):
 		d.pages = append(d.pages, node)
@@ -451,9 +493,11 @@ func (d *Document) walkPages(node Ref, parentChain []Ref) error {
 	_, hasKids := dict["Kids"]
 	if dict["Type"] == Name("Pages") || hasKids {
 		kids, _ := d.Resolve(dict["Kids"]).([]any)
+		ancestors[node.Num] = true
+		defer delete(ancestors, node.Num)
 		for _, kid := range kids {
 			if kidRef, ok := kid.(Ref); ok {
-				if err := d.walkPages(kidRef, chain); err != nil {
+				if err := d.walkPages(kidRef, ancestors, visited); err != nil {
 					return err
 				}
 			}
