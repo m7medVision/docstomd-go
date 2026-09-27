@@ -58,7 +58,11 @@ func (c *converter) parseTable(tbl *opc.Element) ([]model.Block, error) {
 			if cell.covered {
 				origin, ok := active[col]
 				if ok {
-					matrix[origin.row][origin.idx].rowSpan++
+					originCell := &matrix[origin.row][origin.idx]
+					originCell.rowSpan++
+					// A continuation never covers more columns than its
+					// origin spans, so hostile gridSpans add no slots.
+					cell.colSpan = min(cell.colSpan, originCell.colSpan)
 					owner = origin
 				} else {
 					cell.covered, register = false, false

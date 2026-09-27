@@ -29,13 +29,46 @@ type styleDef struct {
 	parent string
 }
 
+// styleProps are a style's effective properties through its basedOn chain.
+type styleProps struct {
+	toggles    toggles
+	heading    int
+	hasHeading bool
+	kind       blockKind
+	numID      int
+	hasNumID   bool
+}
+
+// resolvedStyle memoizes a style's properties, or the cycle error every
+// lookup through it reports.
+type resolvedStyle struct {
+	props styleProps
+	err   error
+}
+
+type numberingLevelKey struct {
+	inst *instance
+	id   string
+}
+
+type numberingLevel struct {
+	level int
+	found bool
+}
+
 type styles struct {
 	defs        map[string]styleDef
 	docDefaults model.Style
+	resolved    map[string]resolvedStyle
+	levels      map[numberingLevelKey]numberingLevel
 }
 
 func parseStyles(root *opc.Element) *styles {
-	s := &styles{defs: map[string]styleDef{}}
+	s := &styles{
+		defs:     map[string]styleDef{},
+		resolved: map[string]resolvedStyle{},
+		levels:   map[numberingLevelKey]numberingLevel{},
+	}
 	if root == nil {
 		return s
 	}
@@ -51,68 +84,109 @@ func parseStyles(root *opc.Element) *styles {
 	return s
 }
 
-// walk visits a style's basedOn chain child to root until visit returns
-// true. A dangling reference ends the walk; a cycle is malformed.
-func (s *styles) walk(id string, visit func(*opc.Element) bool) error {
-	seen := map[string]bool{}
-	for {
-		def, ok := s.defs[id]
-		if !ok {
-			return nil
-		}
-		if seen[id] {
-			return &opc.MalformedError{Detail: "style inheritance cycle at " + strconv.Quote(id)}
-		}
-		seen[id] = true
-		if visit(def.elem) {
-			return nil
-		}
-		id = def.parent
+// resolve returns a style's effective properties, resolving each style of
+// the basedOn chain at most once per document. A dangling reference ends
+// the chain; a cycle is malformed, reported at the first style the chain
+// revisits.
+func (s *styles) resolve(id string) (styleProps, error) {
+	if r, ok := s.resolved[id]; ok {
+		return r.props, r.err
 	}
+	var chain []string
+	onChain := map[string]int{}
+	var base resolvedStyle
+	for cur := id; ; {
+		if r, ok := s.resolved[cur]; ok {
+			base = r
+			break
+		}
+		def, ok := s.defs[cur]
+		if !ok {
+			break
+		}
+		if at, ok := onChain[cur]; ok {
+			for _, member := range chain[at:] {
+				s.resolved[member] = resolvedStyle{err: styleCycle(member)}
+			}
+			base = resolvedStyle{err: styleCycle(cur)}
+			chain = chain[:at]
+			break
+		}
+		onChain[cur] = len(chain)
+		chain = append(chain, cur)
+		cur = def.parent
+	}
+	for i := len(chain) - 1; i >= 0; i-- {
+		if base.err == nil {
+			base.props = ownProps(s.defs[chain[i]].elem, base.props)
+		}
+		s.resolved[chain[i]] = base
+	}
+	if r, ok := s.resolved[id]; ok {
+		return r.props, r.err
+	}
+	return styleProps{}, nil
+}
+
+func styleCycle(id string) error {
+	return &opc.MalformedError{Detail: "style inheritance cycle at " + strconv.Quote(id)}
+}
+
+// ownProps overlays a style's own specification on its parent's effective
+// properties: toggles XOR along the chain, everything else is inherited
+// unless the style specifies it.
+func ownProps(style *opc.Element, parent styleProps) styleProps {
+	p := parent
+	if rpr := child(style, "rPr"); rpr != nil {
+		b, _ := onOff(rpr, "b")
+		i, _ := onOff(rpr, "i")
+		st, _ := onOff(rpr, "strike")
+		ds, _ := onOff(rpr, "dstrike")
+		p.toggles.bold = p.toggles.bold != b
+		p.toggles.italic = p.toggles.italic != i
+		p.toggles.strike = p.toggles.strike != (st || ds)
+	}
+	if level, ok := ownHeadingLevel(style); ok {
+		p.heading, p.hasHeading = level, true
+	}
+	if name, ok := val(style, "name"); ok {
+		if kind := blockKindOf(name); kind != noBlock {
+			p.kind = kind
+		}
+	}
+	if numID, ok := parseNumID(child(child(style, "pPr"), "numPr")); ok {
+		p.numID, p.hasNumID = numID, true
+	}
+	return p
+}
+
+// ownHeadingLevel reads a style's heading level from its name ("heading
+// N", "Title") or outlineLvl; level 0 is the explicit off value (outlineLvl
+// 9), which stops inheritance.
+func ownHeadingLevel(style *opc.Element) (int, bool) {
+	name, _ := val(style, "name")
+	name = strings.ToLower(name)
+	if rest, ok := strings.CutPrefix(name, "heading "); ok {
+		if n, err := strconv.ParseUint(strings.TrimSpace(rest), 10, 8); err == nil {
+			return int(n), true
+		}
+	}
+	if name == "title" {
+		return 1, true
+	}
+	return outlineLevel(child(style, "pPr"))
 }
 
 func (s *styles) runToggles(id string) (toggles, error) {
-	var t toggles
-	err := s.walk(id, func(style *opc.Element) bool {
-		if rpr := child(style, "rPr"); rpr != nil {
-			b, _ := onOff(rpr, "b")
-			i, _ := onOff(rpr, "i")
-			st, _ := onOff(rpr, "strike")
-			ds, _ := onOff(rpr, "dstrike")
-			t.bold = t.bold != b
-			t.italic = t.italic != i
-			t.strike = t.strike != (st || ds)
-		}
-		return false
-	})
-	return t, err
+	p, err := s.resolve(id)
+	return p.toggles, err
 }
 
-// headingLevel resolves a paragraph style's heading level from its name
-// ("heading N", "Title") or outlineLvl through basedOn. found reports the
-// nearest specification; level 0 is the explicit off value (outlineLvl 9),
-// which stops inheritance.
+// headingLevel resolves a paragraph style's heading level through basedOn.
+// found reports the nearest specification.
 func (s *styles) headingLevel(id string) (level int, found bool, err error) {
-	err = s.walk(id, func(style *opc.Element) bool {
-		name, _ := val(style, "name")
-		name = strings.ToLower(name)
-		if rest, ok := strings.CutPrefix(name, "heading "); ok {
-			if n, err := strconv.ParseUint(strings.TrimSpace(rest), 10, 8); err == nil {
-				level, found = int(n), true
-				return true
-			}
-		}
-		if name == "title" {
-			level, found = 1, true
-			return true
-		}
-		if n, ok := outlineLevel(child(style, "pPr")); ok {
-			level, found = n, true
-			return true
-		}
-		return false
-	})
-	return level, found, err
+	p, err := s.resolve(id)
+	return p.heading, p.hasHeading, err
 }
 
 // outlineLevel reads w:outlineLvl as a 1-based heading level, 0 for the
@@ -133,38 +207,48 @@ func outlineLevel(ppr *opc.Element) (int, bool) {
 }
 
 func (s *styles) blockStyle(id string) (blockKind, error) {
-	var kind blockKind
-	err := s.walk(id, func(style *opc.Element) bool {
-		name, ok := val(style, "name")
-		if ok {
-			kind = blockKindOf(name)
-		}
-		return kind != noBlock
-	})
-	return kind, err
+	p, err := s.resolve(id)
+	return p.kind, err
 }
 
 // styleNumID is the numId a paragraph style contributes through basedOn. An
 // ilvl in a style's numPr is ignored (ECMA-376 §17.3.1.19); the level comes
 // from the abstract levels' pStyle bindings.
 func (s *styles) styleNumID(id string) (numID int, found bool, err error) {
-	err = s.walk(id, func(style *opc.Element) bool {
-		numID, found = parseNumID(child(child(style, "pPr"), "numPr"))
-		return found
-	})
-	return numID, found, err
+	p, err := s.resolve(id)
+	return p.numID, p.hasNumID, err
 }
 
+// styleNumberingLevel is the level of the nearest style in the basedOn
+// chain that one of the instance's levels binds through pStyle. Results are
+// memoized per instance and style, so each chain link is visited once per
+// instance.
 func (s *styles) styleNumberingLevel(id string, inst *instance) (level int, found bool, err error) {
-	err = s.walk(id, func(style *opc.Element) bool {
-		styleID, ok := style.Attr(nsW, "styleId")
-		if !ok {
-			return false
+	if _, err := s.resolve(id); err != nil {
+		return 0, false, err
+	}
+	var chain []string
+	var result numberingLevel
+	for cur := id; ; {
+		if r, ok := s.levels[numberingLevelKey{inst: inst, id: cur}]; ok {
+			result = r
+			break
 		}
-		level, found = inst.styleLevel(styleID)
-		return found
-	})
-	return level, found, err
+		def, ok := s.defs[cur]
+		if !ok {
+			break
+		}
+		chain = append(chain, cur)
+		if level, ok := inst.styleLevel(cur); ok {
+			result = numberingLevel{level: level, found: true}
+			break
+		}
+		cur = def.parent
+	}
+	for _, member := range chain {
+		s.levels[numberingLevelKey{inst: inst, id: member}] = result
+	}
+	return result.level, result.found, nil
 }
 
 // directNumID is the numId a numbering style's own numPr references, without

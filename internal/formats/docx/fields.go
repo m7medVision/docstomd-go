@@ -9,7 +9,7 @@ import (
 )
 
 type fieldFrame struct {
-	instr    string
+	instr    strings.Builder
 	inResult bool
 	inlines  []model.Inline
 }
