@@ -33,13 +33,23 @@ type interp struct {
 	mcid                *int64
 	mcidStack           []mcidEntry
 	gstack              []gfxState
+	gstackOverflow      int
 	resources           []map[string]any
 	visitedForms        map[parse.Ref]bool
+	lostContent         bool
 	ops                 int
 	pendingPaint        []Rect
 	pendingLinesList    [][4]float64
 	pathStart, pathLast *[2]float64
 }
+
+// Nesting caps, as MuPDF and pdf.js use: distinct Form XObjects drawn inside
+// one another, and saved graphics states. A q past the cap is counted but not
+// saved, and its matching Q is ignored, so deeper content keeps the state it has.
+const (
+	maxFormDepth   = 32
+	maxGStackDepth = 256
+)
 
 type mcidEntry struct {
 	actualText string
@@ -99,8 +109,16 @@ func (it *interp) run(content []byte) {
 func (it *interp) apply(op contentOp) {
 	switch op.operator {
 	case "q":
+		if len(it.gstack) >= maxGStackDepth {
+			it.gstackOverflow++
+			return
+		}
 		it.gstack = append(it.gstack, it.gfxState)
 	case "Q":
+		if it.gstackOverflow > 0 {
+			it.gstackOverflow--
+			return
+		}
 		if n := len(it.gstack); n > 0 {
 			it.gfxState = it.gstack[n-1]
 			it.gstack = it.gstack[:n-1]
@@ -180,26 +198,23 @@ func (it *interp) apply(op contentOp) {
 			it.lineMat = m
 		}
 	case "T*":
-		m := mat{1, 0, 0, 1, 0, -it.textLeading}
-		it.lineMat = matMul(m, it.lineMat)
-		it.textMat = it.lineMat
-	case "Tj", "'", "\"":
+		it.nextLine()
+	case "Tj":
 		if len(op.operands) >= 1 {
-			if op.operator == "'" {
-				m := mat{1, 0, 0, 1, 0, -it.textLeading}
-				it.lineMat = matMul(m, it.lineMat)
-				it.textMat = it.lineMat
-			} else if op.operator == "\"" && len(op.operands) >= 3 {
-				it.wordSpacing, _ = number(op.operands[0])
-				it.charSpacing, _ = number(op.operands[1])
-			}
-			idx := 0
-			if op.operator == "\"" {
-				idx = 2
-			}
-			if raw, ok := operandBytes(op.operands[idx]); ok {
-				it.showText(raw)
-			}
+			it.showOperand(op.operands[0])
+		}
+	case "'":
+		if len(op.operands) >= 1 {
+			it.nextLine()
+			it.showOperand(op.operands[0])
+		}
+	case "\"":
+		// aw ac string " is aw Tw ac Tc string '.
+		if len(op.operands) >= 3 {
+			it.wordSpacing, _ = number(op.operands[0])
+			it.charSpacing, _ = number(op.operands[1])
+			it.nextLine()
+			it.showOperand(op.operands[2])
 		}
 	case "TJ":
 		if len(op.operands) >= 1 {
@@ -281,6 +296,20 @@ func (it *interp) apply(op contentOp) {
 				it.doXObject(string(n))
 			}
 		}
+	}
+}
+
+// nextLine moves to the start of the next text line (T*).
+func (it *interp) nextLine() {
+	m := mat{1, 0, 0, 1, 0, -it.textLeading}
+	it.lineMat = matMul(m, it.lineMat)
+	it.textMat = it.lineMat
+}
+
+// showOperand shows a string operand; any other operand type is ignored.
+func (it *interp) showOperand(operand any) {
+	if raw, ok := operandBytes(operand); ok {
+		it.showText(raw)
 	}
 }
 

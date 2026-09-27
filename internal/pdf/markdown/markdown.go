@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/m7medVision/docstomd-go/internal/pdf/extract"
 	"github.com/m7medVision/docstomd-go/internal/pdf/table"
@@ -580,7 +581,11 @@ func fixHyphenation(md string) string {
 	for i := 0; i+1 < len(lines); i++ {
 		cur := strings.TrimRight(lines[i], " ")
 		next := strings.TrimLeft(lines[i+1], " ")
-		if strings.HasSuffix(cur, "-") && len(next) > 0 && unicode.IsLower(firstChar(next)) && unicode.IsLower(rune(cur[len(cur)-2])) {
+		if !strings.HasSuffix(cur, "-") || next == "" || !unicode.IsLower(firstChar(next)) {
+			continue
+		}
+		before, _ := utf8.DecodeLastRuneInString(cur[:len(cur)-1])
+		if unicode.IsLower(before) {
 			lines[i] = cur[:len(cur)-1]
 			lines[i+1] = next
 		}

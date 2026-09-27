@@ -59,4 +59,8 @@ type PageResult struct {
 	Rects             []Rect
 	Lines             []Line
 	HasEncodingIssues bool
+	// LostContent is set when the page object, a content stream or a Form
+	// XObject stream could not be loaded or decoded. Its operators were
+	// skipped rather than read from undecoded bytes, so text may be missing.
+	LostContent bool
 }

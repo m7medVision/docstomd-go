@@ -16,7 +16,7 @@ func Extract(doc *parse.Document) []PageResult {
 		pageNum := i + 1
 		pageDict := doc.PageDict(pageRef)
 		if pageDict == nil {
-			results = append(results, PageResult{})
+			results = append(results, PageResult{LostContent: true})
 			continue
 		}
 		resources := doc.PageResources(pageRef)
@@ -34,11 +34,11 @@ func Extract(doc *parse.Document) []PageResult {
 		for _, contentRef := range doc.PageContents(pageRef) {
 			obj, err := doc.GetObject(contentRef.Num)
 			if err != nil {
+				it.lostContent = true
 				continue
 			}
 			if stm, ok := obj.(*parse.Stream); ok {
-				content, _ := doc.StreamData(stm)
-				it.run(content)
+				it.runStream(stm)
 			}
 		}
 		box := resolvePageBox(doc, pageDict)
@@ -56,9 +56,21 @@ func Extract(doc *parse.Document) []PageResult {
 				hasIssues = true
 			}
 		}
-		results = append(results, PageResult{Items: items, Rects: it.rects, Lines: it.lines, HasEncodingIssues: hasIssues})
+		results = append(results, PageResult{Items: items, Rects: it.rects, Lines: it.lines, HasEncodingIssues: hasIssues, LostContent: it.lostContent})
 	}
 	return results
+}
+
+// runStream interprets a content stream. A stream that fails to decode is
+// not read as raw bytes (that would turn compressed data into bogus text);
+// it is skipped and the page is marked as having lost content.
+func (it *interp) runStream(stm *parse.Stream) {
+	content, ok := it.doc.StreamData(stm)
+	if !ok {
+		it.lostContent = true
+		return
+	}
+	it.run(content)
 }
 
 func firstNonNil(scopes []map[string]any, key string) any {
@@ -173,7 +185,9 @@ func detectUnderlinesRaw(items []TextItem, painted []Rect, strokeLines []Line) {
 	if len(rules) == 0 {
 		return
 	}
-	kept := rules[:0]
+	// Filter into a new slice: the inner loop still reads every rule, so
+	// reusing rules' backing array would overwrite rules not yet compared.
+	kept := make([]rule, 0, len(rules))
 	for i, r := range rules {
 		repeated := 0
 		levels := map[float64]bool{}

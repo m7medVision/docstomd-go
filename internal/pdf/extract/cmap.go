@@ -12,14 +12,18 @@ type cmap struct {
 	twoByte bool
 }
 
+// parseToUnicodeCMap stops adding entries after maxFontTableEntries, so a
+// CMap of many wide bfranges cannot expand without bound.
 func parseToUnicodeCMap(data []byte) *cmap {
 	m := &cmap{entries: map[int]string{}}
 	codeLens := map[int]bool{}
 	toks := cmapTokens(string(data))
-	for i := 0; i < len(toks); i++ {
+	budget := maxFontTableEntries
+	for i := 0; i < len(toks) && budget > 0; i++ {
 		switch toks[i] {
 		case "beginbfchar":
-			for i++; i+1 < len(toks) && toks[i] != "endbfchar"; i += 2 {
+			for i++; i+1 < len(toks) && toks[i] != "endbfchar" && budget > 0; i += 2 {
+				budget--
 				src := parseHexBytes(toks[i])
 				if len(src) == 0 {
 					continue
@@ -28,7 +32,7 @@ func parseToUnicodeCMap(data []byte) *cmap {
 				m.entries[codeOf(src)] = hexToUnicodeString(toks[i+1])
 			}
 		case "beginbfrange":
-			for i++; i+2 < len(toks) && toks[i] != "endbfrange"; i += 3 {
+			for i++; i+2 < len(toks) && toks[i] != "endbfrange" && budget > 0; i += 3 {
 				lo, hi := parseHexBytes(toks[i]), parseHexBytes(toks[i+1])
 				dst := toks[i+2]
 				var arr []string
@@ -40,7 +44,8 @@ func parseToUnicodeCMap(data []byte) *cmap {
 					arr = toks[i+3 : j]
 					i = j - 2
 				}
-				if len(lo) == 0 || len(lo) != len(hi) {
+				// Codes are 1 to 4 bytes; longer ones would overflow codeOf.
+				if len(lo) == 0 || len(lo) > 4 || len(lo) != len(hi) {
 					continue
 				}
 				codeLens[len(lo)] = true
@@ -49,7 +54,8 @@ func parseToUnicodeCMap(data []byte) *cmap {
 					continue
 				}
 				if arr != nil {
-					for k := 0; k < len(arr) && loV+k <= hiV; k++ {
+					for k := 0; k < len(arr) && loV+k <= hiV && budget > 0; k++ {
+						budget--
 						m.entries[loV+k] = hexToUnicodeString(arr[k])
 					}
 					continue
@@ -59,7 +65,8 @@ func parseToUnicodeCMap(data []byte) *cmap {
 				if len(base) == 0 {
 					continue
 				}
-				for c := loV; c <= hiV; c++ {
+				for c := loV; c <= hiV && budget > 0; c++ {
+					budget--
 					r := append([]rune(nil), base...)
 					r[len(r)-1] += rune(c - loV)
 					m.entries[c] = string(r)
