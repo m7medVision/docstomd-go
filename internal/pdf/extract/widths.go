@@ -94,9 +94,24 @@ func parseType0Widths(doc *parse.Document, fontDict map[string]any) *widthInfo {
 	return &widthInfo{widths: widths, defaultWidth: defaultWidth, spaceWidth: spaceWidth, isCID: true, unitsScale: 0.001}
 }
 
+// maxFontTableEntries caps the entries one font table may expand to: a CID
+// /W array, a ToUnicode CMap, or the cmap subtables of one embedded sfnt.
+// Ranges in all three are compact to write but expand one entry per code, so
+// without the cap a few bytes of hostile font data become a long loop and a
+// huge map. Real fonts stay well below it: a full CJK font maps about 65,536
+// glyphs.
+const maxFontTableEntries = 1 << 17
+
+// maxCID is the largest CID a two-byte encoding such as Identity-H can name.
+const maxCID = 0xFFFF
+
+// parseCIDWArray expands a CIDFont /W array into widths. It accepts both
+// forms, `c [w1 w2 ...]` and `cFirst cLast w`, keeps only CIDs in 0..maxCID,
+// and stops after maxFontTableEntries entries.
 func parseCIDWArray(doc *parse.Document, wArr []any, widths map[int]uint16) {
+	budget := maxFontTableEntries
 	i := 0
-	for i < len(wArr) {
+	for i < len(wArr) && budget > 0 {
 		start, ok := number(doc.Resolve(wArr[i]))
 		if !ok {
 			i++
@@ -104,9 +119,16 @@ func parseCIDWArray(doc *parse.Document, wArr []any, widths map[int]uint16) {
 		}
 		if i+1 < len(wArr) {
 			if group, ok := doc.Resolve(wArr[i+1]).([]any); ok {
-				for j, wObj := range group {
-					if w, ok := number(doc.Resolve(wObj)); ok {
-						widths[int(start)+j] = uint16(w)
+				if start >= 0 && start <= maxCID {
+					for j, wObj := range group {
+						cid := int(start) + j
+						if cid > maxCID || budget == 0 {
+							break
+						}
+						budget--
+						if w, ok := number(doc.Resolve(wObj)); ok {
+							widths[cid] = uint16(w)
+						}
 					}
 				}
 				i += 2
@@ -114,8 +136,10 @@ func parseCIDWArray(doc *parse.Document, wArr []any, widths map[int]uint16) {
 			}
 			if i+2 < len(wArr) {
 				if end, okE := number(doc.Resolve(wArr[i+1])); okE {
-					if w, okW := number(doc.Resolve(wArr[i+2])); okW {
-						for cid := int(start); cid <= int(end); cid++ {
+					w, okW := number(doc.Resolve(wArr[i+2]))
+					if okW && start >= 0 && start <= end && end <= maxCID {
+						for cid := int(start); cid <= int(end) && budget > 0; cid++ {
+							budget--
 							widths[cid] = uint16(w)
 						}
 					}

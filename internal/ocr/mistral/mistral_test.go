@@ -235,3 +235,74 @@ func TestProviderIdentity(t *testing.T) {
 		t.Errorf("name=%q cost=%v", provider.Name(), provider.EstPageCost())
 	}
 }
+
+func TestRetryAfterWaitIsClamped(t *testing.T) {
+	cases := []struct {
+		name       string
+		retryAfter string
+		want       time.Duration
+	}{
+		{"one day", "86400", mistral.MaxRetryWait},
+		{"huge", "9223372036854775807", mistral.MaxRetryWait},
+		{"short", "2", 2 * time.Second},
+		{"zero retries at once", "0", 0},
+		{"absent uses backoff", "", time.Millisecond},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			header := http.Header{}
+			if tc.retryAfter != "" {
+				header.Set("Retry-After", tc.retryAfter)
+			}
+			provider, transport := newProvider(t,
+				reply{status: 429, fixture: "rate_limit.json", header: header},
+				reply{status: 200, fixture: "success.json"},
+			)
+			var waits []time.Duration
+			mistral.SetSleep(provider, func(ctx context.Context, d time.Duration) error {
+				waits = append(waits, d)
+				return nil
+			})
+			if _, err := provider.Recognize(context.Background(), pdf, []int{1}); err != nil {
+				t.Fatalf("Recognize: %v", err)
+			}
+			if len(transport.requests) != 2 {
+				t.Errorf("requests = %d, want 2", len(transport.requests))
+			}
+			if len(waits) != 1 || waits[0] != tc.want {
+				t.Errorf("waits = %v, want [%v]", waits, tc.want)
+			}
+		})
+	}
+}
+
+func TestOversizedSuccessBodyIsRejected(t *testing.T) {
+	provider, _ := newProvider(t, reply{status: 200, fixture: "success.json"})
+	mistral.SetMaxResponseBytes(provider, 64)
+	_, err := provider.Recognize(context.Background(), pdf, []int{1})
+	if !errors.Is(err, mistral.ErrMalformedResponse) || !strings.Contains(err.Error(), "exceeds 64 bytes") {
+		t.Fatalf("err = %v, want size-limit ErrMalformedResponse", err)
+	}
+}
+
+func TestDefaultClientHasTimeout(t *testing.T) {
+	custom := &http.Client{}
+	cases := []struct {
+		name string
+		opts mistral.Options
+		want time.Duration
+	}{
+		{"default", mistral.Options{}, 120 * time.Second},
+		{"caller client wins", mistral.Options{HTTPClient: custom}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mistral.ClientOf(mistral.New(tc.opts)).Timeout; got != tc.want {
+				t.Errorf("timeout = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	if mistral.ClientOf(mistral.New(mistral.Options{HTTPClient: custom})) != custom {
+		t.Error("caller-supplied client was replaced")
+	}
+}

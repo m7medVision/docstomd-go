@@ -2,6 +2,7 @@ package opc
 
 import (
 	"errors"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -196,5 +197,35 @@ func TestPackageXMLParts(t *testing.T) {
 		if root, err := p.OptionalXML(name); root != nil || err != nil {
 			t.Fatalf("OptionalXML(%q) = %v, %v", name, root, err)
 		}
+	}
+}
+
+func TestSplitTextMergesInLinearSpace(t *testing.T) {
+	const runs = 100_000
+	data := []byte("<r>" + strings.Repeat("x<!---->", runs) + "y</r>")
+	want := strings.Repeat("x", runs) + "y"
+	parsers := []struct {
+		name  string
+		parse func([]byte, int) (*Element, error)
+	}{
+		{"scanner", scanXML},
+		{"decoder", decodeXML},
+	}
+	for _, p := range parsers {
+		t.Run(p.name, func(t *testing.T) {
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			root, err := p.parse(data, MaxXMLNodes)
+			runtime.ReadMemStats(&after)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(root.Nodes) != 1 || root.Nodes[0].Text != want {
+				t.Fatalf("got %d nodes, text length %d; want one text node of length %d", len(root.Nodes), len(root.Text()), len(want))
+			}
+			if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 64<<20 {
+				t.Fatalf("allocated %d bytes merging %d text runs", allocated, runs)
+			}
+		})
 	}
 }

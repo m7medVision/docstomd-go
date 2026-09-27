@@ -39,6 +39,7 @@ type converter struct {
 	assets       []model.Asset
 	assetByPart  map[string]model.AssetID
 	assetBytes   int
+	expansion    uint64
 }
 
 func Parse(data []byte) (*model.Document, error) {

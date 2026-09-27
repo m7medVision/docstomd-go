@@ -207,6 +207,10 @@ type treeBuilder struct {
 	elems    []Element
 	nodeSlab []Node
 	attrSlab []Attr
+	// merging marks the last pending node as a text run whose content is
+	// being accumulated in textBuf; it is written back by flushText.
+	merging bool
+	textBuf []byte
 }
 
 type openElement struct {
@@ -241,6 +245,7 @@ func (b *treeBuilder) start(name xml.Name, attrs []xml.Attr) error {
 	if b.nodes++; b.nodes > b.maxNodes {
 		return nodeLimit()
 	}
+	b.flushText()
 	var scope map[string]string
 	kept := 0
 	for _, a := range attrs {
@@ -315,6 +320,7 @@ func (b *treeBuilder) end() {
 	if len(b.stack) == 0 {
 		return
 	}
+	b.flushText()
 	top := b.stack[len(b.stack)-1]
 	b.stack = b.stack[:len(b.stack)-1]
 	if n := len(b.pending) - top.first; n > 0 {
@@ -334,7 +340,11 @@ func (b *treeBuilder) text(s string) error {
 		return nil
 	}
 	if last := len(b.pending) - 1; last >= b.stack[len(b.stack)-1].first && b.pending[last].Elem == nil {
-		b.pending[last].Text += s
+		if !b.merging {
+			b.textBuf = append(b.textBuf[:0], b.pending[last].Text...)
+			b.merging = true
+		}
+		b.textBuf = append(b.textBuf, s...)
 		return nil
 	}
 	if b.nodes++; b.nodes > b.maxNodes {
@@ -342,6 +352,14 @@ func (b *treeBuilder) text(s string) error {
 	}
 	b.pending = append(b.pending, Node{Text: s})
 	return nil
+}
+
+func (b *treeBuilder) flushText() {
+	if !b.merging {
+		return
+	}
+	b.pending[len(b.pending)-1].Text = string(b.textBuf)
+	b.merging = false
 }
 
 func (b *treeBuilder) finish() (*Element, error) {

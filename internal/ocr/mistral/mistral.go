@@ -25,6 +25,13 @@ const (
 	endpoint        = "https://api.mistral.ai/v1/ocr"
 	maxRetries      = 3
 	defaultBackoff  = time.Second
+	defaultTimeout  = 120 * time.Second
+	maxRetryWait    = 60 * time.Second
+	// maxResponseBytes caps a success body; a many-page response with block
+	// annotations stays far below it.
+	maxResponseBytes = 64 << 20
+	maxErrorBytes    = 64 << 10
+	maxDrainBytes    = 64 << 10
 )
 
 var (
@@ -35,7 +42,8 @@ var (
 )
 
 type Options struct {
-	Model        string
+	Model string
+	// HTTPClient defaults to a client with a 120 s timeout.
 	HTTPClient   *http.Client
 	RetryBackoff time.Duration
 }
@@ -43,18 +51,26 @@ type Options struct {
 // Provider holds no credentials; the key is read from the environment per call
 // so it can never be formatted, logged, or echoed from the value.
 type Provider struct {
-	model   string
-	client  *http.Client
-	backoff time.Duration
+	model    string
+	client   *http.Client
+	backoff  time.Duration
+	maxBody  int64
+	sleepFor func(ctx context.Context, d time.Duration) error
 }
 
 func New(opts Options) *Provider {
-	p := &Provider{model: opts.Model, client: opts.HTTPClient, backoff: opts.RetryBackoff}
+	p := &Provider{
+		model:    opts.Model,
+		client:   opts.HTTPClient,
+		backoff:  opts.RetryBackoff,
+		maxBody:  maxResponseBytes,
+		sleepFor: sleep,
+	}
 	if p.model == "" {
 		p.model = DefaultModel
 	}
 	if p.client == nil {
-		p.client = http.DefaultClient
+		p.client = &http.Client{Timeout: defaultTimeout}
 	}
 	if p.backoff == 0 {
 		p.backoff = defaultBackoff
@@ -120,12 +136,12 @@ func (p *Provider) Recognize(ctx context.Context, doc ocr.Document, pages []int)
 			return nil, err
 		}
 		if resp.StatusCode == http.StatusOK {
-			pages, err := decode(resp.Body)
-			_ = resp.Body.Close()
+			pages, err := decode(resp.Body, p.maxBody)
+			closeBody(resp.Body)
 			return pages, err
 		}
 		detail := apiMessage(resp.Body)
-		_ = resp.Body.Close()
+		closeBody(resp.Body)
 		switch {
 		case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 			return nil, fmt.Errorf("%w (HTTP %d: %s)", ErrUnauthorized, resp.StatusCode, detail)
@@ -136,7 +152,7 @@ func (p *Provider) Recognize(ctx context.Context, doc ocr.Document, pages []int)
 		case attempt == maxRetries:
 			return nil, fmt.Errorf("mistral: HTTP %d after %d attempts: %s", resp.StatusCode, attempt+1, detail)
 		}
-		if err := sleep(ctx, p.wait(attempt, resp.Header.Get("Retry-After"))); err != nil {
+		if err := p.sleepFor(ctx, p.wait(attempt, resp.Header.Get("Retry-After"))); err != nil {
 			return nil, err
 		}
 	}
@@ -153,11 +169,20 @@ func (p *Provider) post(ctx context.Context, key string, body []byte) (*http.Res
 	return p.client.Do(httpReq)
 }
 
+// wait honors Retry-After (in seconds) or backs off exponentially, never
+// longer than maxRetryWait.
 func (p *Provider) wait(attempt int, retryAfter string) time.Duration {
 	if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 {
+		if seconds > int(maxRetryWait/time.Second) {
+			return maxRetryWait
+		}
 		return time.Duration(seconds) * time.Second
 	}
-	return p.backoff << attempt
+	d := p.backoff << attempt
+	if d < 0 || d > maxRetryWait {
+		return maxRetryWait
+	}
+	return d
 }
 
 func sleep(ctx context.Context, d time.Duration) error {
@@ -171,9 +196,23 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func decode(r io.Reader) ([]ocr.PageResult, error) {
+// closeBody drains a bounded remainder so the connection can be reused, then
+// closes the body.
+func closeBody(body io.ReadCloser) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxDrainBytes))
+	_ = body.Close()
+}
+
+func decode(r io.Reader, maxBytes int64) ([]ocr.PageResult, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("mistral: reading response: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%w: response body exceeds %d bytes", ErrMalformedResponse, maxBytes)
+	}
 	var resp response
-	if err := json.NewDecoder(r).Decode(&resp); err != nil {
+	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrMalformedResponse, err)
 	}
 	out := make([]ocr.PageResult, 0, len(resp.Pages))
@@ -201,7 +240,7 @@ func decode(r io.Reader) ([]ocr.PageResult, error) {
 }
 
 func apiMessage(r io.Reader) string {
-	data, _ := io.ReadAll(io.LimitReader(r, 64<<10))
+	data, _ := io.ReadAll(io.LimitReader(r, maxErrorBytes))
 	var body struct {
 		Message string `json:"message"`
 		Detail  string `json:"detail"`

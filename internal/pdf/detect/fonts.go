@@ -349,7 +349,9 @@ func cmapSubtableHasMappings(sub []byte) bool {
 			return false
 		}
 		segCount := int(binary.BigEndian.Uint16(sub[6:8])) / 2
-		if segCount == 0 {
+		// endCode[segCount], reservedPad, startCode[segCount] follow the
+		// 14-byte header; a short subtable must not be indexed past its end.
+		if segCount == 0 || 16+segCount*4 > len(sub) {
 			return false
 		}
 		endCodes := 14

@@ -44,8 +44,21 @@ type Options struct {
 	// FileName is consulted for its extension only when the content is
 	// inconclusive (an empty file, a broken zip); content always wins.
 	FileName string
-	Markdown pdfmarkdown.Options
+	// Markdown tunes PDF Markdown reconstruction; nil means
+	// DefaultMarkdownOptions. A non-nil value is used as is, so a zero
+	// MarkdownOptions turns every flag off.
+	Markdown *MarkdownOptions
 	OCR      OCROptions
+}
+
+// MarkdownOptions are the PDF Markdown reconstruction flags.
+type MarkdownOptions = pdfmarkdown.Options
+
+// DefaultMarkdownOptions returns the flags used when Options.Markdown is nil:
+// heading, list and code detection, page-number removal, hyphenation fixing
+// and furniture stripping on; links off.
+func DefaultMarkdownOptions() MarkdownOptions {
+	return pdfmarkdown.DefaultOptions()
 }
 
 // OCRProvider is the vendor seam implementations plug into.
@@ -123,6 +136,10 @@ type Result struct {
 	HasEncodingIssues bool              `json:"has_encoding_issues"`
 	OCRCost           *OCRCostReport    `json:"ocr_cost,omitempty"`
 	NeedsReview       []int             `json:"needs_review,omitempty"`
+	// LostContentPages lists 1-indexed PDF pages whose page object, content
+	// stream or form stream could not be loaded or decoded; text from the
+	// failed part is missing from Markdown.
+	LostContentPages []int `json:"lost_content_pages,omitempty"`
 }
 
 // LayoutComplexity reports whether layout-sensitive conversion (tables,
@@ -266,17 +283,21 @@ func Convert(ctx context.Context, r io.Reader, opts Options) (*Result, error) {
 	pages := pdfextract.Extract(doc)
 	var allItems []pdfextract.TextItem
 	hasIssues := false
-	for _, page := range pages {
+	var lostPages []int
+	for i, page := range pages {
 		allItems = append(allItems, page.Items...)
 		hasIssues = hasIssues || page.HasEncodingIssues
+		if page.LostContent {
+			lostPages = append(lostPages, i+1)
+		}
 	}
 	qualityReport := pdfquality.AnalyzeItems(allItems)
 	if detection.Type == pdfdetect.TypeTextBased {
 		stripRoutedPages(pages, detection.PagesNeedingOCR)
 	}
-	mdOpts := opts.Markdown
-	if mdOpts == (pdfmarkdown.Options{}) {
-		mdOpts = pdfmarkdown.DefaultOptions()
+	mdOpts := DefaultMarkdownOptions()
+	if opts.Markdown != nil {
+		mdOpts = *opts.Markdown
 	}
 	md, complexity := pdfmarkdown.Convert(pages, mdOpts)
 	var ocrResult *pdfocr.Result
@@ -292,7 +313,7 @@ func Convert(ctx context.Context, r io.Reader, opts Options) (*Result, error) {
 		router := &pdfocr.Router{MaxPagesPerDoc: opts.OCR.MaxPagesPerDoc, MaxPagesPerRun: opts.OCR.MaxPagesPerRun, Budget: opts.OCR.Run}
 		ocrResult, err = router.Run(ctx, provider, pdfocr.Document{Bytes: data}, opts.OCR.Mode, routed, detection.PageCount, opts.OCR.DryRun)
 		if err != nil {
-			return nil, err
+			return nil, mapOCRError(ctx, err)
 		}
 		if len(ocrResult.PageMarkdown) > 0 {
 			var parts []string
@@ -336,5 +357,6 @@ func Convert(ctx context.Context, r io.Reader, opts Options) (*Result, error) {
 		Layout:            &complexity,
 		DurationMS:        time.Since(start).Milliseconds(),
 		HasEncodingIssues: hasIssues,
+		LostContentPages:  lostPages,
 	}, nil
 }

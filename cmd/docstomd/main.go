@@ -38,7 +38,7 @@ common flags:
 
 convert OCR flags (PDF):
   --ocr off|auto|force   off fails scanned PDFs with exit 3; auto OCRs routed pages; force OCRs all
-  --ocr-dry-run          report billed pages and estimated cost without calling the provider
+  --ocr-dry-run          with --ocr auto|force, report billed pages and estimated cost without calling the provider
   --ocr-max-pages N      bill at most N pages per document
   --ocr-model ID         pin the Mistral OCR model (default mistral-ocr-latest)
   OCR reads MISTRAL_API_KEY from the environment.
@@ -88,7 +88,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	jsonOut := fs.Bool("json", false, "emit JSON with metadata")
 	itemsJSON := fs.Bool("items-json", false, "emit positioned extraction items as JSON")
 	ocrMode := fs.String("ocr", "off", "OCR mode: off, auto, or force")
-	ocrDryRun := fs.Bool("ocr-dry-run", false, "report billed OCR pages and estimated cost without calling the provider")
+	ocrDryRun := fs.Bool("ocr-dry-run", false, "with --ocr auto|force, report billed OCR pages and estimated cost without calling the provider")
 	ocrMaxPages := fs.Int("ocr-max-pages", 0, "maximum pages billed for OCR (0 = unlimited)")
 	ocrModel := fs.String("ocr-model", "", "Mistral OCR model id (default mistral-ocr-latest; pin a version for reproducibility)")
 	if wantsHelp(args) {
@@ -129,6 +129,10 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		opts.OCR.Mode = docstomd.OCRForce
 	default:
 		fmt.Fprintf(stderr, "docstomd convert: unknown --ocr mode %q (off, auto, force)\n", *ocrMode)
+		return exitUsage
+	}
+	if *ocrDryRun && opts.OCR.Mode == docstomd.OCROff {
+		fmt.Fprintln(stderr, "docstomd convert: --ocr-dry-run needs --ocr auto or --ocr force")
 		return exitUsage
 	}
 	result, err := docstomd.Convert(ctx, bytes.NewReader(data), opts)

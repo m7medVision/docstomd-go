@@ -47,7 +47,7 @@ appear before or after the file.
 |------|---------|---------|
 | `--json` | off | Emit a JSON object with the Markdown and metadata instead of bare Markdown |
 | `--ocr off\|auto\|force` | `off` | OCR mode (see [OCR](#ocr)) |
-| `--ocr-dry-run` | off | Report the pages that would be billed and the estimated cost; never calls the provider |
+| `--ocr-dry-run` | off | With `--ocr auto` or `force`, report the pages that would be billed and the estimated cost; never calls the provider. Without one of those modes it is a usage error |
 | `--ocr-max-pages N` | `0` (unlimited) | Maximum pages billed for OCR per document |
 | `--ocr-model ID` | `mistral-ocr-latest` | Mistral OCR model; pin a dated version for reproducible output |
 | `--items-json` | off | PDF debugging: dump positioned text items as JSON |
@@ -71,7 +71,9 @@ appear before or after the file.
 
 `ocr_cost` appears only when the OCR router ran. `needs_review` appears
 when OCR was weak, missing or capped for some pages, which then kept their
-native text.
+native text. `lost_content_pages` appears when a PDF page's content (or a
+form it draws) could not be loaded or decoded. That part is skipped rather
+than read as raw bytes, so its text is missing from `markdown`.
 
 ### `docstomd detect`
 
@@ -96,7 +98,9 @@ with reasons. Detection never calls a provider.
 With `--json`, errors are printed to stdout as
 `{"error": {"code": "...", "message": "...", "pages": [...], "page_count": N}}`.
 The stable codes are `unsupported`, `needsOcr`, `malformed`, `encrypted`,
-`resourceLimit`, `missingPart` and `io`.
+`resourceLimit`, `missingPart`, `io`, and for OCR `ocrAuth` (API key missing
+or rejected), `ocrRateLimited` (still rate limited after retries),
+`ocrProvider` (any other provider failure) and `canceled` (interrupted).
 
 ## Formats
 
@@ -318,9 +322,11 @@ export MISTRAL_API_KEY=...        # read from the environment only; never logged
 docstomd convert --ocr auto scan.pdf
 ```
 
-A missing key produces an actionable error before any request is sent.
-Rate limits (HTTP 429) and server errors are retried with backoff. An
-authentication failure fails fast.
+A missing key produces an actionable `ocrAuth` error before any request is
+sent. Rate limits (HTTP 429) and server errors are retried with backoff,
+waiting at most 60 seconds per retry even when `Retry-After` asks for more.
+An authentication failure fails fast. Each request times out after 120
+seconds unless you pass your own `MistralOptions.HTTPClient`.
 
 ### Cost control
 
@@ -383,6 +389,20 @@ Set `Options.FileName` (and pass `name` to `Detect`) when you know the file
 name. Its extension is consulted only when the content is inconclusive, so an
 empty or truncated office package reports `malformed` instead of
 `unsupported`. `Options.Format` skips detection entirely.
+`Options.Markdown` tunes PDF Markdown reconstruction. Leave it nil for the
+defaults. To change one flag, start from the defaults so the others stay on;
+a zero `MarkdownOptions` turns every flag off:
+
+```go
+md := docstomd.DefaultMarkdownOptions()
+md.IncludeLinks = true
+result, err := docstomd.Convert(ctx, f, docstomd.Options{Markdown: &md})
+```
+
+OCR failures return a `*docstomd.Error` with an OCR code, and `errors.Is`
+still matches `docstomd.ErrOCRMissingKey`, `ErrOCRUnauthorized` and
+`ErrOCRRateLimited`.
+
 `OCROptions.Provider` accepts any `docstomd.OCRProvider` implementation
 (`Name`, `EstPageCost`, `Recognize`). The same interface is how you plug in
 another vendor or a fake in tests.

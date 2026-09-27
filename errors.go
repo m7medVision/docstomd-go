@@ -1,6 +1,7 @@
 package docstomd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -18,6 +19,15 @@ const (
 	CodeResourceLimit ErrorCode = "resourceLimit"
 	CodeMissingPart   ErrorCode = "missingPart"
 	CodeIO            ErrorCode = "io"
+	// CodeOCRAuth: the OCR provider has no API key or rejected it.
+	CodeOCRAuth ErrorCode = "ocrAuth"
+	// CodeOCRRateLimited: the provider still rate-limited after retries.
+	CodeOCRRateLimited ErrorCode = "ocrRateLimited"
+	// CodeOCRProvider: any other OCR provider failure (server error,
+	// malformed response, transport failure).
+	CodeOCRProvider ErrorCode = "ocrProvider"
+	// CodeCanceled: the caller's context was canceled or its deadline passed.
+	CodeCanceled ErrorCode = "canceled"
 )
 
 type Error struct {
@@ -25,6 +35,8 @@ type Error struct {
 	Message   string    `json:"message"`
 	Pages     []int     `json:"pages,omitempty"`
 	PageCount int       `json:"page_count,omitempty"`
+	// err is the cause, kept so errors.Is matches the provider sentinels.
+	err error
 }
 
 func (e *Error) Error() string {
@@ -33,6 +45,8 @@ func (e *Error) Error() string {
 	}
 	return string(e.Code) + ": " + e.Message
 }
+
+func (e *Error) Unwrap() error { return e.err }
 
 func Unsupported(format string) *Error {
 	return &Error{Code: CodeUnsupported, Message: "unsupported input format: " + format}
@@ -80,10 +94,32 @@ func mapOfficeError(err error) error {
 	return err
 }
 
+// mapOCRError gives a failed OCR run its stable code. ctx decides
+// cancellation, so a provider's own client timeout stays a provider failure.
+func mapOCRError(ctx context.Context, err error) error {
+	var e *Error
+	if errors.As(err, &e) {
+		return err
+	}
+	code := CodeOCRProvider
+	switch {
+	case ctx.Err() != nil:
+		code = CodeCanceled
+	case errors.Is(err, ErrOCRMissingKey) || errors.Is(err, ErrOCRUnauthorized):
+		code = CodeOCRAuth
+	case errors.Is(err, ErrOCRRateLimited):
+		code = CodeOCRRateLimited
+	}
+	return &Error{Code: code, Message: err.Error(), err: err}
+}
+
 func ErrorCodeOf(err error) ErrorCode {
 	var e *Error
 	if errors.As(err, &e) {
 		return e.Code
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return CodeCanceled
 	}
 	return CodeIO
 }

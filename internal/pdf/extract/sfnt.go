@@ -4,14 +4,17 @@ import "encoding/binary"
 
 // sfntGIDToUnicode extracts a GID→rune map from the cmap table of an
 // embedded TrueType/OpenType font, using Unicode subtables (format 0, 4, 6,
-// 12).
+// 12). All subtables of one font share a budget of maxFontTableEntries
+// codes, so wide ranges or many subtables pointing at the same data cannot
+// turn a small font into a long loop or a huge map.
 func sfntGIDToUnicode(data []byte) map[int]rune {
 	if len(data) < 12 {
 		return nil
 	}
 	numTables := int(binary.BigEndian.Uint16(data[4:6]))
 	out := map[int]rune{}
-	for i := 0; i < numTables; i++ {
+	budget := maxFontTableEntries
+	for i := 0; i < numTables && budget > 0; i++ {
 		rec := 12 + i*16
 		if rec+16 > len(data) {
 			return nil
@@ -24,7 +27,7 @@ func sfntGIDToUnicode(data []byte) map[int]rune {
 			continue
 		}
 		subCount := int(binary.BigEndian.Uint16(data[offset+2 : offset+4]))
-		for s := 0; s < subCount; s++ {
+		for s := 0; s < subCount && budget > 0; s++ {
 			recOff := offset + 4 + s*8
 			if recOff+8 > len(data) {
 				break
@@ -36,7 +39,7 @@ func sfntGIDToUnicode(data []byte) map[int]rune {
 			if !unicode || subOff+2 > len(data) {
 				continue
 			}
-			readSubtable(data[subOff:], out)
+			budget = readSubtable(data[subOff:], out, budget)
 		}
 	}
 	if len(out) == 0 {
@@ -45,40 +48,47 @@ func sfntGIDToUnicode(data []byte) map[int]rune {
 	return out
 }
 
-func readSubtable(sub []byte, out map[int]rune) {
+// readSubtable adds at most budget codes from one cmap subtable to out and
+// returns the budget left.
+func readSubtable(sub []byte, out map[int]rune, budget int) int {
 	if len(sub) < 2 {
-		return
+		return budget
 	}
 	format := int(binary.BigEndian.Uint16(sub[0:2]))
 	switch format {
 	case 0:
 		if len(sub) < 262 {
-			return
+			return budget
 		}
 		for code, b := range sub[6:262] {
+			if budget == 0 {
+				break
+			}
+			budget--
 			if b != 0 {
 				out[int(b)] = rune(code)
 			}
 		}
 	case 4:
 		if len(sub) < 14 {
-			return
+			return budget
 		}
 		segCount := int(binary.BigEndian.Uint16(sub[6:8])) / 2
 		if segCount == 0 || 16+segCount*8 > len(sub) {
-			return
+			return budget
 		}
 		endCodes := 14
 		reserved := endCodes + segCount*2
 		startCodes := reserved + 2
 		idDeltas := startCodes + segCount*2
 		idRange := idDeltas + segCount*2
-		for i := 0; i < segCount; i++ {
+		for i := 0; i < segCount && budget > 0; i++ {
 			start := int(binary.BigEndian.Uint16(sub[startCodes+i*2 : startCodes+i*2+2]))
 			end := int(binary.BigEndian.Uint16(sub[endCodes+i*2 : endCodes+i*2+2]))
 			delta := int(int16(binary.BigEndian.Uint16(sub[idDeltas+i*2 : idDeltas+i*2+2])))
 			rangeOff := idRange + i*2
-			for c := start; c <= end && c != 0xFFFF; c++ {
+			for c := start; c <= end && c != 0xFFFF && budget > 0; c++ {
+				budget--
 				var gid int
 				if binary.BigEndian.Uint16(sub[rangeOff:rangeOff+2]) == 0 {
 					gid = (c + delta) & 0xFFFF
@@ -103,11 +113,12 @@ func readSubtable(sub []byte, out map[int]rune) {
 		}
 	case 6:
 		if len(sub) < 10 {
-			return
+			return budget
 		}
 		first := int(binary.BigEndian.Uint16(sub[6:8]))
 		count := int(binary.BigEndian.Uint16(sub[8:10]))
-		for i := 0; i < count; i++ {
+		for i := 0; i < count && budget > 0; i++ {
+			budget--
 			off := 10 + i*2
 			if off+2 > len(sub) {
 				break
@@ -119,10 +130,10 @@ func readSubtable(sub []byte, out map[int]rune) {
 		}
 	case 12:
 		if len(sub) < 16 {
-			return
+			return budget
 		}
 		nGroups := int(binary.BigEndian.Uint32(sub[12:16]))
-		for g := 0; g < nGroups; g++ {
+		for g := 0; g < nGroups && budget > 0; g++ {
 			off := 16 + g*12
 			if off+12 > len(sub) {
 				break
@@ -133,9 +144,11 @@ func readSubtable(sub []byte, out map[int]rune) {
 			if end-start > 0x10000 {
 				continue
 			}
-			for c := start; c <= end; c++ {
+			for c := start; c <= end && budget > 0; c++ {
+				budget--
 				out[startGID+c-start] = rune(c)
 			}
 		}
 	}
+	return budget
 }

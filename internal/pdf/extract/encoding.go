@@ -118,9 +118,11 @@ func hexVal(c byte) int {
 }
 
 // decodeFallbackChar is the single-byte decode fallback: cp1252 punctuation
-// for 0x80..0x9F, Latin-1 elsewhere.
+// for 0x80..0x9F, Latin-1 elsewhere. cp1252High is keyed by the full byte;
+// its 0xA0..0xFF entries are the Latin-1 identity, and the five codes cp1252
+// leaves undefined fall through to rune(code).
 func decodeFallbackChar(code byte) rune {
-	if cp, ok := cp1252High[code-0x80]; ok {
+	if cp, ok := cp1252High[code]; ok {
 		return cp
 	}
 	return rune(code)

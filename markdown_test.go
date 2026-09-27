@@ -219,3 +219,34 @@ func TestQualityFlagsPUAFixture(t *testing.T) {
 		t.Errorf("garbled must lead the reason priority, got %v", reasons)
 	}
 }
+
+func TestConvertMarkdownOptions(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "detect", "author_block_superscripts.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withLinks := DefaultMarkdownOptions()
+	withLinks.IncludeLinks = true
+	cases := []struct {
+		name         string
+		markdown     *MarkdownOptions
+		wantHeadings bool
+	}{
+		{"nil means defaults", nil, true},
+		{"explicit defaults", new(DefaultMarkdownOptions()), true},
+		{"one flag keeps the rest", &withLinks, true},
+		{"zero value is all off", &MarkdownOptions{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := Convert(context.Background(), bytes.NewReader(data), Options{Markdown: tc.markdown})
+			if err != nil {
+				t.Fatalf("Convert: %v", err)
+			}
+			gotHeadings := strings.HasPrefix(result.Markdown, "# A Fixture Title")
+			if gotHeadings != tc.wantHeadings {
+				t.Errorf("headings = %v, want %v; markdown:\n%.200s", gotHeadings, tc.wantHeadings, result.Markdown)
+			}
+		})
+	}
+}

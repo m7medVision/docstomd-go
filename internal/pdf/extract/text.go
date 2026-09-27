@@ -436,13 +436,16 @@ func (it *interp) doXObject(name string) {
 		if !ok {
 			continue
 		}
-		if it.visitedForms[ref] {
+		// visitedForms holds the forms being drawn, so it catches self-cycles
+		// and its size is the nesting depth of distinct forms.
+		if it.visitedForms[ref] || len(it.visitedForms) >= maxFormDepth {
 			return
 		}
 		it.visitedForms[ref] = true
 		defer delete(it.visitedForms, ref)
 		obj, err := it.doc.GetObject(ref.Num)
 		if err != nil {
+			it.lostContent = true
 			return
 		}
 		stm, ok := obj.(*parse.Stream)
@@ -454,12 +457,10 @@ func (it *interp) doXObject(name string) {
 			if formRes, ok := dictOf(it.doc, stm.Dict["Resources"]); ok {
 				savedRes := it.resources
 				it.resources = []map[string]any{formRes}
-				content, _ := it.doc.StreamData(stm)
-				it.run(content)
+				it.runStream(stm)
 				it.resources = savedRes
 			} else {
-				content, _ := it.doc.StreamData(stm)
-				it.run(content)
+				it.runStream(stm)
 			}
 		case "Image":
 			width, _ := number(stm.Dict["Width"])

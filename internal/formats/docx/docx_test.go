@@ -7,7 +7,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -330,5 +332,281 @@ func TestAttachmentsKeepSourceOrder(t *testing.T) {
 	})
 	if md != "```\nbefore\n```\n\nboxed\n\n```\nafter\n```\n" {
 		t.Fatalf("got %q", md)
+	}
+}
+
+func allocatedBytes(f func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	f()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+func TestSplitFieldInstructionAccumulatesLinearly(t *testing.T) {
+	const pieces = 20_000
+	url := "https://e.com/" + strings.Repeat("a", pieces)
+	field := func(instr string) string {
+		return `<w:p><w:r><w:fldChar w:fldCharType="begin"/></w:r>` + instr +
+			`<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>link</w:t></w:r>` +
+			`<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>`
+	}
+	whole := `<w:r><w:instrText>HYPERLINK "` + url + `"</w:instrText></w:r>`
+	var split strings.Builder
+	split.WriteString(`<w:r><w:instrText>HYPERLINK "https://e.com/</w:instrText>`)
+	for range pieces {
+		split.WriteString(`<w:instrText>a</w:instrText>`)
+	}
+	split.WriteString(`<w:instrText>"</w:instrText></w:r>`)
+
+	want := markdown(t, map[string]string{"word/document.xml": body(field(whole))})
+	if !strings.Contains(want, url) {
+		t.Fatalf("unsplit field is not a link: %.80q", want)
+	}
+	data := pkg(t, map[string]string{"word/document.xml": body(field(split.String()))})
+	var doc *model.Document
+	var err error
+	allocated := allocatedBytes(func() { doc, err = Parse(data) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gfm.Render(doc); got != want {
+		t.Fatalf("split field differs from unsplit:\ngot  %.120q\nwant %.120q", got, want)
+	}
+	if allocated > 64<<20 {
+		t.Fatalf("allocated %d bytes for %d instruction pieces", allocated, pieces)
+	}
+}
+
+func TestListLevelClampsToDefinedDepth(t *testing.T) {
+	para := func(ilvl int) string {
+		return `<w:p><w:pPr><w:numPr><w:ilvl w:val="` + strconv.Itoa(ilvl) + `"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>item</w:t></w:r></w:p>`
+	}
+	levels := numbering(`<w:lvl w:ilvl="0"><w:numFmt w:val="bullet"/></w:lvl>`)
+	var deepest strings.Builder
+	for ilvl := range numLevels {
+		deepest.WriteString(para(ilvl))
+	}
+	capped := maxIndent(markdown(t, map[string]string{"word/document.xml": body(deepest.String()), "word/numbering.xml": levels}))
+
+	var hostile strings.Builder
+	for ilvl := range 4001 {
+		hostile.WriteString(para(ilvl))
+	}
+	data := pkg(t, map[string]string{"word/document.xml": body(hostile.String()), "word/numbering.xml": levels})
+	var md string
+	allocated := allocatedBytes(func() {
+		doc, err := Parse(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		md = gfm.Render(doc)
+	})
+	if got := maxIndent(md); got != capped {
+		t.Fatalf("deepest indent %d, want the level-%d indent %d", got, numLevels-1, capped)
+	}
+	if got := strings.Count(md, "item"); got != 4001 {
+		t.Fatalf("rendered %d items, want 4001", got)
+	}
+	if allocated > 64<<20 {
+		t.Fatalf("allocated %d bytes for 4001 list levels", allocated)
+	}
+}
+
+func maxIndent(md string) int {
+	deepest := 0
+	for line := range strings.Lines(md) {
+		deepest = max(deepest, len(line)-len(strings.TrimLeft(line, " ")))
+	}
+	return deepest
+}
+
+func TestWideVMergeContinuationIsClamped(t *testing.T) {
+	const rows = 4000
+	var tbl strings.Builder
+	tbl.WriteString(`<w:tbl><w:tr><w:tc><w:tcPr><w:vMerge w:val="restart"/></w:tcPr><w:p><w:r><w:t>origin</w:t></w:r></w:p></w:tc></w:tr>`)
+	for range rows {
+		tbl.WriteString(`<w:tr><w:tc><w:tcPr><w:gridSpan w:val="1000"/><w:vMerge/></w:tcPr><w:p/></w:tc></w:tr>`)
+	}
+	tbl.WriteString(`</w:tbl>`)
+	data := pkg(t, map[string]string{"word/document.xml": body(tbl.String())})
+	var doc *model.Document
+	var err error
+	allocated := allocatedBytes(func() { doc, err = Parse(data) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := doc.Blocks[0].(model.Table)
+	grid := table.Grid()
+	for r, row := range grid {
+		if len(row) != 1 {
+			t.Fatalf("row %d has %d slots, want 1", r, len(row))
+		}
+	}
+	if origin := grid[0][0]; origin.Covered || origin.Cell.RowSpan != len(grid) {
+		t.Fatalf("origin %+v, want a row span of %d", origin, len(grid))
+	}
+	if allocated > 32<<20 {
+		t.Fatalf("allocated %d bytes for %d continuation rows", allocated, rows)
+	}
+}
+
+func TestDeepStyleChainResolvesOnce(t *testing.T) {
+	const depth, runs = 2000, 2000
+	var styles strings.Builder
+	styles.WriteString(`<w:styles ` + wNS + `>`)
+	for i := range depth {
+		styles.WriteString(`<w:style w:styleId="S` + strconv.Itoa(i) + `">`)
+		if i+1 < depth {
+			styles.WriteString(`<w:basedOn w:val="S` + strconv.Itoa(i+1) + `"/>`)
+		} else {
+			styles.WriteString(`<w:rPr><w:b/></w:rPr>`)
+		}
+		styles.WriteString(`</w:style>`)
+	}
+	styles.WriteString(`</w:styles>`)
+	var paras strings.Builder
+	for range runs {
+		paras.WriteString(`<w:p><w:pPr><w:pStyle w:val="S1"/></w:pPr><w:r><w:rPr><w:rStyle w:val="S0"/></w:rPr><w:t>x</w:t></w:r></w:p>`)
+	}
+	data := pkg(t, map[string]string{"word/document.xml": body(paras.String()), "word/styles.xml": styles.String()})
+	var doc *model.Document
+	var err error
+	allocated := allocatedBytes(func() { doc, err = Parse(data) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gfm.Render(doc); !strings.HasPrefix(got, "x\n") {
+		t.Fatalf("paragraph bold and run bold toggle off, got %.40q", got)
+	}
+	if allocated > 64<<20 {
+		t.Fatalf("allocated %d bytes for %d runs over a %d-style chain", allocated, runs, depth)
+	}
+}
+
+func TestStyleResolutionFollowsChain(t *testing.T) {
+	styles := `<w:styles ` + wNS + `>
+		<w:style w:styleId="Base"><w:name w:val="Quote"/><w:rPr><w:b/><w:i/></w:rPr></w:style>
+		<w:style w:styleId="Mid"><w:basedOn w:val="Base"/><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>
+		<w:style w:styleId="Leaf"><w:basedOn w:val="Mid"/><w:name w:val="Leafy"/></w:style>
+		<w:style w:styleId="Dangling"><w:basedOn w:val="Nowhere"/><w:rPr><w:strike/></w:rPr></w:style></w:styles>`
+	root, err := opc.ParseXML([]byte(styles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parseStyles(root)
+	cases := []struct {
+		id      string
+		toggles toggles
+		heading int
+		found   bool
+		kind    blockKind
+	}{
+		{"Leaf", toggles{italic: true}, 2, true, quoteBlock},
+		{"Mid", toggles{italic: true}, 2, true, quoteBlock},
+		{"Base", toggles{bold: true, italic: true}, 0, false, quoteBlock},
+		{"Dangling", toggles{strike: true}, 0, false, noBlock},
+		{"Unknown", toggles{}, 0, false, noBlock},
+	}
+	for _, c := range cases {
+		t.Run(c.id, func(t *testing.T) {
+			tg, err := s.runToggles(c.id)
+			if err != nil || tg != c.toggles {
+				t.Errorf("toggles %+v %v, want %+v", tg, err, c.toggles)
+			}
+			level, found, err := s.headingLevel(c.id)
+			if err != nil || level != c.heading || found != c.found {
+				t.Errorf("heading %d %v %v, want %d %v", level, found, err, c.heading, c.found)
+			}
+			if kind, err := s.blockStyle(c.id); err != nil || kind != c.kind {
+				t.Errorf("block kind %v %v, want %v", kind, err, c.kind)
+			}
+		})
+	}
+}
+
+func TestStyleCycleNamesFirstRevisitedStyle(t *testing.T) {
+	root, err := opc.ParseXML([]byte(`<w:styles ` + wNS + `>
+		<w:style w:styleId="Entry"><w:basedOn w:val="A"/></w:style>
+		<w:style w:styleId="A"><w:basedOn w:val="B"/></w:style>
+		<w:style w:styleId="B"><w:basedOn w:val="A"/></w:style></w:styles>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parseStyles(root)
+	for _, c := range []struct{ id, at string }{{"Entry", "A"}, {"A", "A"}, {"B", "B"}} {
+		_, err := s.runToggles(c.id)
+		var me *opc.MalformedError
+		if !errors.As(err, &me) || !strings.Contains(me.Detail, strconv.Quote(c.at)) {
+			t.Errorf("%s: got %v, want a cycle at %q", c.id, err, c.at)
+		}
+	}
+}
+
+func TestChartReferencedManyTimesParsesOnce(t *testing.T) {
+	var chart strings.Builder
+	chart.WriteString(`<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:barChart><c:ser><c:tx><c:v>S</c:v></c:tx><c:cat><c:strCache>`)
+	for i := range 5000 {
+		chart.WriteString(`<c:pt idx="` + strconv.Itoa(i) + `"><c:v>c` + strconv.Itoa(i) + `</c:v></c:pt>`)
+	}
+	chart.WriteString(`</c:strCache></c:cat><c:val><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:val></c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>`)
+	ref := `<w:p><w:r><w:drawing><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="rId1"/></w:drawing></w:r></w:p>`
+	docWith := func(refs int) []byte {
+		return pkg(t, map[string]string{
+			"word/document.xml": body(strings.Repeat(ref, refs)),
+			"word/_rels/document.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+				<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="charts/chart1.xml"/></Relationships>`,
+			"word/charts/chart1.xml": chart.String(),
+		})
+	}
+	parseCounting := func(data []byte) (*model.Document, uint64) {
+		var doc *model.Document
+		var err error
+		allocated := allocatedBytes(func() { doc, err = Parse(data) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return doc, allocated
+	}
+	one, oneAlloc := parseCounting(docWith(1))
+	const refs = 100
+	many, manyAlloc := parseCounting(docWith(refs))
+	if len(one.Blocks) != 1 || len(many.Blocks) != refs {
+		t.Fatalf("got %d and %d blocks, want 1 and %d", len(one.Blocks), len(many.Blocks), refs)
+	}
+	if manyAlloc > 2*oneAlloc {
+		t.Fatalf("%d references allocated %d bytes, one allocated %d: the chart is parsed per reference", refs, manyAlloc, oneAlloc)
+	}
+}
+
+func TestStyleNumberingLevelFindsNearestBoundStyle(t *testing.T) {
+	root, err := opc.ParseXML([]byte(`<w:styles ` + wNS + `>
+		<w:style w:styleId="Top"/>
+		<w:style w:styleId="Bound"><w:basedOn w:val="Top"/></w:style>
+		<w:style w:styleId="Leaf"><w:basedOn w:val="Bound"/></w:style>
+		<w:style w:styleId="Other"><w:basedOn w:val="Top"/></w:style></w:styles>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parseStyles(root)
+	inst := &instance{}
+	inst.pstyles[3] = "Bound"
+	cases := []struct {
+		id    string
+		level int
+		found bool
+	}{
+		{"Leaf", 3, true},
+		{"Bound", 3, true},
+		{"Other", 0, false},
+		{"Top", 0, false},
+		{"Leaf", 3, true},
+		{"Unknown", 0, false},
+	}
+	for _, c := range cases {
+		level, found, err := s.styleNumberingLevel(c.id, inst)
+		if err != nil || level != c.level || found != c.found {
+			t.Errorf("%s: got %d %v %v, want %d %v", c.id, level, found, err, c.level, c.found)
+		}
 	}
 }

@@ -3,6 +3,7 @@ package docx
 import (
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/m7medVision/docstomd-go/internal/formats/omml"
@@ -298,7 +299,8 @@ func (c *converter) resolveNumbering(ppr *opc.Element, styleID string, hasStyle 
 			ilvl = level
 		}
 	}
-	def := inst.levels[min(ilvl, numLevels-1)]
+	ilvl = min(ilvl, numLevels-1)
+	def := inst.levels[ilvl]
 	if def.suppressed {
 		return listEntry{}, false, nil
 	}
@@ -524,14 +526,14 @@ func (w *inlineWalker) walkRunContent(run *opc.Element, style model.Style) error
 				if n := len(w.fields); n > 0 {
 					frame := w.fields[n-1]
 					w.fields = w.fields[:n-1]
-					for _, in := range fieldResult(frame.instr, frame.inlines) {
+					for _, in := range fieldResult(frame.instr.String(), frame.inlines) {
 						w.push(in)
 					}
 				}
 			}
 		case "instrText":
 			if n := len(w.fields); n > 0 {
-				w.fields[n-1].instr += ch.Text()
+				w.fields[n-1].instr.WriteString(ch.Text())
 			}
 		}
 	}
@@ -565,14 +567,14 @@ func (w *inlineWalker) drawing(e *opc.Element) error {
 
 	if chart := e.FirstDescendant(nsChart, "chart"); chart != nil {
 		if id, ok := chart.QualifiedAttr(nsR, "id"); ok {
-			blocks, err := w.c.relXMLBlocks(id, ooxml.ChartBlocks)
+			blocks, err := w.c.relXMLBlocks(id, w.c.charts, ooxml.ChartBlocks)
 			w.pushBlocks(blocks)
 			return err
 		}
 	}
 	if relIDs := e.FirstDescendant(nsDgm, "relIds"); relIDs != nil {
 		if id, ok := relIDs.QualifiedAttr(nsR, "dm"); ok {
-			blocks, err := w.c.relXMLBlocks(id, ooxml.DiagramBlocks)
+			blocks, err := w.c.relXMLBlocks(id, w.c.diagrams, ooxml.DiagramBlocks)
 			w.pushBlocks(blocks)
 			return err
 		}
@@ -657,9 +659,14 @@ func (c *converter) imageSource(id string) (model.ImageSource, error) {
 	return model.ImageSource{Kind: model.SourceAsset, Asset: asset}, nil
 }
 
-// relXMLBlocks parses a related XML part into blocks; a corrupt part is
-// skipped with a warning.
-func (c *converter) relXMLBlocks(id string, convert func(*opc.Element) []model.Block) ([]model.Block, error) {
+// relXMLBlocks parses a related XML part into blocks once per document,
+// memoized in cache by part; a corrupt part is skipped with a warning.
+func (c *converter) relXMLBlocks(id string, cache map[string][]model.Block, convert func(*opc.Element) []model.Block) ([]model.Block, error) {
+	if path, ok := c.rels.PartPath(id); ok {
+		if blocks, ok := cache[path]; ok {
+			return slices.Clip(blocks), nil
+		}
+	}
 	part, data, err := c.relPart(id)
 	if err != nil || data == nil {
 		return nil, err
@@ -671,9 +678,12 @@ func (c *converter) relXMLBlocks(id string, convert func(*opc.Element) []model.B
 			return nil, err
 		}
 		slog.Warn("skipping corrupt part", "part", part, "err", err)
+		cache[part] = nil
 		return nil, nil
 	}
-	return convert(root), nil
+	blocks := convert(root)
+	cache[part] = blocks
+	return slices.Clip(blocks), nil
 }
 
 // collectTextBoxes finds w:txbxContent in a drawing, skipping mc:Fallback so

@@ -38,6 +38,8 @@ type converter struct {
 	numbering map[int]*instance
 	counters  map[int]*counterState
 	assets    *assetSink
+	charts    map[string][]model.Block
+	diagrams  map[string][]model.Block
 }
 
 // Parse converts a .docx/.docm package. Errors are opc.MalformedError,
@@ -94,6 +96,8 @@ func Parse(data []byte) (*model.Document, error) {
 		numbering: numbering,
 		counters:  map[int]*counterState{},
 		assets:    &assetSink{byPart: map[string]model.AssetID{}},
+		charts:    map[string][]model.Block{},
+		diagrams:  map[string][]model.Block{},
 	}
 	blocks, err := c.parseBlocks(body)
 	if err != nil {

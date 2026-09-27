@@ -381,6 +381,9 @@ func TestConvertOCRFlagModes(t *testing.T) {
 	if !strings.Contains(stdout, "MISTRAL_API_KEY is not set") {
 		t.Errorf("json stdout missing actionable key error:\n%s", stdout)
 	}
+	if !strings.Contains(stdout, `"code":"ocrAuth"`) {
+		t.Errorf("json stdout missing ocrAuth code:\n%s", stdout)
+	}
 	code, _, _ = runCLI(t, "convert", "--ocr", "bogus", scanned)
 	if code != exitUsage {
 		t.Errorf("bogus mode exit = %d, want %d", code, exitUsage)
@@ -457,5 +460,27 @@ func TestConvertBrokenOfficePackageIsMalformed(t *testing.T) {
 		if code != exitError || !strings.Contains(stdout, `"code":"malformed"`) {
 			t.Errorf("%s: exit = %d, stdout %s", name, code, stdout)
 		}
+	}
+}
+
+func TestConvertOCRDryRunNeedsOCRMode(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"no mode", []string{"convert", "--ocr-dry-run", scanned}},
+		{"mode off", []string{"convert", "--ocr", "off", "--ocr-dry-run", "--json", scanned}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, stdout, stderr := runCLI(t, tc.args...)
+			if code != exitUsage {
+				t.Errorf("exit = %d, want %d", code, exitUsage)
+			}
+			if stdout != "" || !strings.Contains(stderr, "--ocr-dry-run needs --ocr auto or --ocr force") {
+				t.Errorf("stdout = %q, stderr = %q, want usage message only", stdout, stderr)
+			}
+		})
 	}
 }
