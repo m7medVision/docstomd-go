@@ -174,3 +174,15 @@ func TestPublishedSchemaMatchesProtocol(t *testing.T) {
 		}
 	}
 }
+
+func TestStubConforms(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"markdown", "lines"} {
+		t.Run(mode, func(t *testing.T) {
+			externaltest.Conformance(t, external.Config{Command: exe, Env: []string{externaltest.EnvMode + "=" + mode}}, []byte("%PDF-stub"), []int{1, 2})
+		})
+	}
+}
