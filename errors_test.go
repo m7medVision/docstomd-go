@@ -1,9 +1,11 @@
 package docstomd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -60,6 +62,48 @@ func TestOnlyResourceLimitIsFatal(t *testing.T) {
 	for _, err := range []error{Malformed("xref", "bad"), Encrypted(), Unsupported("pdf"), io.EOF} {
 		if IsFatal(err) {
 			t.Errorf("IsFatal(%v) = true, want false", err)
+		}
+	}
+}
+
+func TestMapOCRError(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	live := context.Background()
+	cases := []struct {
+		name     string
+		ctx      context.Context
+		err      error
+		want     ErrorCode
+		sentinel error
+	}{
+		{"missing key", live, ErrOCRMissingKey, CodeOCRAuth, ErrOCRMissingKey},
+		{"unauthorized", live, fmt.Errorf("%w (HTTP 401)", ErrOCRUnauthorized), CodeOCRAuth, ErrOCRUnauthorized},
+		{"rate limited", live, fmt.Errorf("%w after 4 attempts", ErrOCRRateLimited), CodeOCRRateLimited, ErrOCRRateLimited},
+		{"server error", live, errors.New("mistral: HTTP 503"), CodeOCRProvider, nil},
+		{"caller canceled", canceled, context.Canceled, CodeCanceled, context.Canceled},
+		{"typed error kept", live, Encrypted(), CodeEncrypted, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mapOCRError(tc.ctx, tc.err)
+			if code := ErrorCodeOf(got); code != tc.want {
+				t.Errorf("code = %q, want %q", code, tc.want)
+			}
+			if tc.sentinel != nil && !errors.Is(got, tc.sentinel) {
+				t.Errorf("errors.Is(%v, %v) = false", got, tc.sentinel)
+			}
+			if !strings.Contains(got.Error(), tc.err.Error()) {
+				t.Errorf("message %q lost cause %q", got.Error(), tc.err.Error())
+			}
+		})
+	}
+}
+
+func TestErrorCodeOfContextErrors(t *testing.T) {
+	for _, err := range []error{context.Canceled, fmt.Errorf("reading: %w", context.DeadlineExceeded)} {
+		if got := ErrorCodeOf(err); got != CodeCanceled {
+			t.Errorf("ErrorCodeOf(%v) = %q, want %q", err, got, CodeCanceled)
 		}
 	}
 }

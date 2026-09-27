@@ -19,10 +19,9 @@ const (
 	Force
 )
 
-// Document is the provider call payload: raw PDF bytes plus optional password.
+// Document is the provider call payload: the raw PDF bytes.
 type Document struct {
-	Bytes    []byte
-	Password string
+	Bytes []byte
 }
 
 // Box is a provider annotation rectangle in page coordinates.

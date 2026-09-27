@@ -111,6 +111,9 @@ func TestMissingMistralKeyIsTyped(t *testing.T) {
 	if !errors.Is(err, ErrOCRMissingKey) {
 		t.Fatalf("err = %v, want ErrOCRMissingKey", err)
 	}
+	if code := ErrorCodeOf(err); code != CodeOCRAuth {
+		t.Errorf("code = %q, want %q", code, CodeOCRAuth)
+	}
 	if !strings.Contains(err.Error(), "MISTRAL_API_KEY") {
 		t.Errorf("err = %v, want actionable env var hint", err)
 	}
