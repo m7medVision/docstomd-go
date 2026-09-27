@@ -256,7 +256,9 @@ func TestParseRejectsBadCatalogs(t *testing.T) {
 		"traversal":   func(m map[string]any) { m["files"].([]any)[0].(map[string]any)["path"] = "../evil" },
 		"no sha":      func(m map[string]any) { m["files"].([]any)[0].(map[string]any)["sha256"] = "abc" },
 		"http source": func(m map[string]any) { m["files"].([]any)[0].(map[string]any)["source"] = "http://x/y" },
-		"unpinned hf": func(m map[string]any) { m["files"].([]any)[0].(map[string]any)["source"] = "hf://org/tiny@main/det.onnx" },
+		"unpinned hf": func(m map[string]any) {
+			m["files"].([]any)[0].(map[string]any)["source"] = "hf://org/tiny@main/det.onnx"
+		},
 		"missing file": func(m map[string]any) {
 			m["files"] = m["files"].([]any)[1:]
 		},
