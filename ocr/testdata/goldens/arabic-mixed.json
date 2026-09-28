@@ -1,0 +1,10 @@
+{
+  "fixture": "arabic-mixed",
+  "note": "Text-level golden for testdata/ocr/arabic-mixed.pdf (shaped with pango-view in DejaVu Sans 12 at 200 dpi). Text is logical order, compared with whitespace removed; boxes in image pixels.",
+  "lines": [
+    {"text": "تقرير الربع الثالث", "box": [450, 67, 818, 125]},
+    {"text": "بلغت المبيعات 1250 دينارا في عام 2024", "box": [73, 156, 814, 203]},
+    {"text": "تم تحديث نظام SAP يوم الأحد", "box": [305, 195, 820, 258]},
+    {"text": "رقم الطلب: 7781", "box": [512, 238, 821, 293]}
+  ]
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,7 +13,55 @@ import (
 	"testing"
 
 	"github.com/m7medVision/docstomd-go"
+	"github.com/m7medVision/docstomd-go/internal/ocr/external/externaltest"
 )
+
+// The test binary doubles as a stub OCR engine for exec: providers.
+func TestMain(m *testing.M) {
+	if mode := os.Getenv(externaltest.EnvMode); mode != "" {
+		os.Exit(externaltest.Stub(mode))
+	}
+	// Keep the user's provider config and local engine out of the tests.
+	dir, err := os.MkdirTemp("", "docstomd-cli-test")
+	if err != nil {
+		panic(err)
+	}
+	for key, value := range map[string]string{"XDG_CONFIG_HOME": dir, "HOME": dir, "PATH": ""} {
+		if err := os.Setenv(key, value); err != nil {
+			panic(err)
+		}
+	}
+	if err := os.Unsetenv("DOCSTOMD_OCR_LOCAL"); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
+// writeConfig writes the provider config for this test.
+func writeConfig(t *testing.T, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "docstomd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docstomd", "providers.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// stubEngine returns an exec: provider spec for the stub engine in mode.
+func stubEngine(t *testing.T, mode string) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(externaltest.EnvMode, mode)
+	return "exec:" + exe
+}
 
 func runCLI(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
@@ -225,11 +274,13 @@ func TestDetectContentWinsOverFileName(t *testing.T) {
 
 func TestExitCodeMapping(t *testing.T) {
 	cases := map[docstomd.ErrorCode]int{
-		docstomd.CodeNeedsOcr:    exitNeedsOcr,
-		docstomd.CodeUnsupported: exitUnsupported,
-		docstomd.CodeMalformed:   exitError,
-		docstomd.CodeEncrypted:   exitError,
-		docstomd.CodeIO:          exitError,
+		docstomd.CodeNeedsOcr:       exitNeedsOcr,
+		docstomd.CodeUnsupported:    exitUnsupported,
+		docstomd.CodeMalformed:      exitError,
+		docstomd.CodeEncrypted:      exitError,
+		docstomd.CodeIO:             exitError,
+		docstomd.CodeOCRUnavailable: exitOCRUnavailable,
+		docstomd.CodeOCRProtocol:    exitOCRUnavailable,
 	}
 	for code, want := range cases {
 		if got := exitCodeFor(code); got != want {
@@ -374,7 +425,7 @@ func TestConvertNeedsOcrExitCode(t *testing.T) {
 func TestConvertOCRFlagModes(t *testing.T) {
 	t.Setenv("MISTRAL_API_KEY", "")
 	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
-	code, stdout, _ := runCLI(t, "convert", "--ocr", "auto", "--json", scanned)
+	code, stdout, _ := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", "mistral", "--json", scanned)
 	if code != exitError {
 		t.Errorf("auto without key exit = %d, want %d", code, exitError)
 	}
@@ -397,7 +448,7 @@ func TestConvertOCRFlagModes(t *testing.T) {
 func TestConvertOCRDryRunReportsCostWithoutKey(t *testing.T) {
 	t.Setenv("MISTRAL_API_KEY", "")
 	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
-	code, stdout, stderr := runCLI(t, "convert", scanned, "--ocr", "auto", "--ocr-dry-run", "--ocr-max-pages", "1", "--json")
+	code, stdout, stderr := runCLI(t, "convert", scanned, "--ocr", "auto", "--ocr-provider", "mistral", "--ocr-dry-run", "--ocr-max-pages", "1", "--json")
 	if code != exitOK {
 		t.Fatalf("exit = %d, want 0; stderr: %s", code, stderr)
 	}
@@ -482,5 +533,210 @@ func TestConvertOCRDryRunNeedsOCRMode(t *testing.T) {
 				t.Errorf("stdout = %q, stderr = %q, want usage message only", stdout, stderr)
 			}
 		})
+	}
+}
+
+func TestConvertExecProvider(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	for _, mode := range []string{"markdown", "lines"} {
+		t.Run(mode, func(t *testing.T) {
+			code, stdout, stderr := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", stubEngine(t, mode), "--json", scanned)
+			if code != exitOK {
+				t.Fatalf("exit = %d, stderr:\n%s", code, stderr)
+			}
+			var result struct {
+				Markdown string                  `json:"markdown"`
+				OCRCost  *docstomd.OCRCostReport `json:"ocr_cost"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(result.Markdown, "page 1 of %PDF") || !strings.Contains(result.Markdown, "page 2 of %PDF") {
+				t.Errorf("markdown = %q", result.Markdown)
+			}
+			if result.OCRCost == nil || result.OCRCost.Provider != "stub" || result.OCRCost.PagesBilled != 2 {
+				t.Errorf("cost = %+v", result.OCRCost)
+			}
+		})
+	}
+}
+
+func TestConvertExecProviderFailuresExitFive(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	cases := []struct{ spec, code string }{
+		{"exec:/nonexistent/engine", "ocrUnavailable"},
+		{stubEngine(t, "malformed"), "ocrProtocol"},
+	}
+	for _, tc := range cases {
+		code, stdout, _ := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", tc.spec, "--json", scanned)
+		if code != exitOCRUnavailable {
+			t.Errorf("%s: exit = %d, want %d", tc.spec, code, exitOCRUnavailable)
+		}
+		if !strings.Contains(stdout, `"code":"`+tc.code+`"`) {
+			t.Errorf("%s: json missing %s:\n%s", tc.spec, tc.code, stdout)
+		}
+	}
+	t.Setenv(externaltest.EnvMode, "unavailable")
+	code, _, stderr := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", stubEngine(t, "unavailable"), scanned)
+	if code != exitOCRUnavailable || !strings.Contains(stderr, "ocrUnavailable") || !strings.Contains(stderr, "stub") {
+		t.Errorf("engine-reported unavailable: exit %d, stderr %q", code, stderr)
+	}
+}
+
+func TestConvertUnknownProviderIsUsage(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	for _, spec := range []string{"bogus", "exec:"} {
+		if code, _, _ := runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", spec, scanned); code != exitUsage {
+			t.Errorf("%q: exit = %d, want %d", spec, code, exitUsage)
+		}
+	}
+}
+
+func TestDefaultProviderRule(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	t.Setenv("MISTRAL_API_KEY", "")
+	code, stdout, _ := runCLI(t, "convert", "--ocr", "auto", "--json", scanned)
+	if code != exitOCRUnavailable || !strings.Contains(stdout, "docstomd-ocr-local") || !strings.Contains(stdout, "go install") {
+		t.Errorf("no key: want local engine with install hint, exit %d:\n%s", code, stdout)
+	}
+	t.Setenv("MISTRAL_API_KEY", "k")
+	code, stdout, _ = runCLI(t, "convert", "--ocr", "auto", "--ocr-dry-run", "--json", scanned)
+	if code != exitOK || !strings.Contains(stdout, `"provider":"mistral"`) {
+		t.Errorf("key set: want mistral, exit %d:\n%s", code, stdout)
+	}
+	t.Setenv("MISTRAL_API_KEY", "")
+	t.Setenv("DOCSTOMD_OCR_LOCAL", stubEngine(t, "lines")[len("exec:"):])
+	code, stdout, _ = runCLI(t, "convert", "--ocr", "auto", "--json", scanned)
+	if code != exitOK || !strings.Contains(stdout, `"provider":"local"`) || !strings.Contains(stdout, `"local":true`) || !strings.Contains(stdout, "line on page 1") {
+		t.Errorf("DOCSTOMD_OCR_LOCAL: exit %d:\n%s", code, stdout)
+	}
+}
+
+func TestNamedProvidersFromConfig(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, fmt.Sprintf(`{"version": 1, "default": "mine", "providers": {
+		"mine": {"command": %q, "env": {"DOCSTOMD_STUB": "markdown"}, "page_cost": 0.25},
+		"other": {"command": %q, "env": {"DOCSTOMD_STUB": "lines"}, "local": true}
+	}}`, exe, exe))
+	code, stdout, stderr := runCLI(t, "convert", "--ocr", "auto", "--json", scanned)
+	if code != exitOK || !strings.Contains(stdout, `"provider":"mine"`) || !strings.Contains(stdout, `"estimated_cost_usd":0.5`) || !strings.Contains(stdout, "page 1 of %PDF") {
+		t.Errorf("config default: exit %d stderr %s:\n%s", code, stderr, stdout)
+	}
+	for _, spec := range []string{"other", "exec:other"} {
+		code, stdout, stderr = runCLI(t, "convert", "--ocr", "auto", "--ocr-provider", spec, "--json", scanned)
+		if code != exitOK || !strings.Contains(stdout, `"provider":"other"`) || !strings.Contains(stdout, `"local":true`) || !strings.Contains(stdout, "line on page 1") {
+			t.Errorf("%s: exit %d stderr %s:\n%s", spec, code, stderr, stdout)
+		}
+	}
+}
+
+func TestBadConfigIsUsageError(t *testing.T) {
+	scanned := filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf")
+	for _, body := range []string{
+		`{not json`,
+		`{"version": 2}`,
+		`{"version": 1, "providers": {"local": {"command": "x"}}}`,
+		`{"version": 1, "providers": {"x": {}}}`,
+	} {
+		writeConfig(t, body)
+		code, _, stderr := runCLI(t, "convert", "--ocr", "auto", scanned)
+		if code != exitUsage || !strings.Contains(stderr, "providers.json") {
+			t.Errorf("%s: exit %d stderr %s", body, code, stderr)
+		}
+	}
+}
+
+func TestMultiFileRunSharesOneEngineAndRunCap(t *testing.T) {
+	scanned, err := os.ReadFile(filepath.Join("..", "..", "testdata", "detect", "handmade-scanned.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := t.TempDir()
+	var files []string
+	for _, name := range []string{"a.pdf", "b.pdf", "c.pdf"} {
+		path := filepath.Join(in, name)
+		if err := os.WriteFile(path, scanned, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, path)
+	}
+	// The stub counts its own starts in a file.
+	starts := filepath.Join(t.TempDir(), "starts")
+	t.Setenv(externaltest.EnvStarts, starts)
+	out := t.TempDir()
+	args := append([]string{"convert", "--ocr", "auto", "--ocr-provider", stubEngine(t, "markdown"), "--ocr-max-pages-run", "5", "--out-dir", out, "--json"}, files...)
+	code, _, stderr := runCLI(t, args...)
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if data, _ := os.ReadFile(starts); strings.Count(string(data), "start") != 1 {
+		t.Errorf("engine starts = %q, want exactly one", data)
+	}
+	var billed []int
+	for _, name := range []string{"a", "b", "c"} {
+		data, err := os.ReadFile(filepath.Join(out, name+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result struct {
+			OCRCost     docstomd.OCRCostReport `json:"ocr_cost"`
+			NeedsReview []int                  `json:"needs_review"`
+		}
+		if err := json.Unmarshal(data, &result); err != nil {
+			t.Fatal(err)
+		}
+		billed = append(billed, result.OCRCost.PagesBilled)
+	}
+	if fmt.Sprint(billed) != "[2 2 1]" {
+		t.Errorf("pages per document = %v, want [2 2 1] under a 5-page run cap", billed)
+	}
+}
+
+func TestMultiFileNeedsOutDir(t *testing.T) {
+	code, _, _ := runCLI(t, "convert", "a.pdf", "b.pdf")
+	if code != exitUsage {
+		t.Errorf("exit %d, want usage", code)
+	}
+	code, _, stderr := runCLI(t, "convert", "--out-dir", t.TempDir(), "x/a.pdf", "y/a.pdf")
+	if code != exitUsage || !strings.Contains(stderr, "both write") {
+		t.Errorf("colliding outputs: exit %d %s", code, stderr)
+	}
+}
+
+func TestOCRCommandDelegatesToLocalEngine(t *testing.T) {
+	code, _, stderr := runCLI(t, "ocr", "list")
+	if code != exitOCRUnavailable || !strings.Contains(stderr, "docstomd-ocr-local not found") {
+		t.Errorf("no engine: exit %d stderr %q", code, stderr)
+	}
+	t.Setenv("DOCSTOMD_OCR_LOCAL", stubEngine(t, "args")[len("exec:"):])
+	writeConfig(t, `{"version": 1, "catalogs": ["/etc/team-catalog.json"]}`)
+	var stdout bytes.Buffer
+	code = runOCR(context.Background(), []string{"install", "--accept-license", "CC-BY-4.0", "my-model"}, strings.NewReader(""), &stdout, io.Discard)
+	if code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	var got []string
+	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
+		t.Fatalf("%v: %s", err, stdout.String())
+	}
+	want := []string{"install", "--catalog", "/etc/team-catalog.json", "--accept-license", "CC-BY-4.0", "my-model"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("engine args = %q, want %q", got, want)
+	}
+	if code, _, _ := runCLI(t, "ocr", "bogus"); code != exitUsage {
+		t.Errorf("unknown subcommand exit %d", code)
+	}
+}
+
+func TestLocalEngineArgs(t *testing.T) {
+	cfg := &config{Catalogs: []string{"team.json"}}
+	got := localArgs(providerFlags{model: "m", lang: "ar", backend: "go", catalogs: []string{"extra.json"}}, cfg)
+	want := []string{"--model", "m", "--lang", "ar", "--backend", "go", "--catalog", "team.json", "--catalog", "extra.json"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("args = %q, want %q", got, want)
 	}
 }

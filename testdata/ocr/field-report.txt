@@ -1,0 +1,7 @@
+Quarterly Field Report
+The northern station recorded 42 clear days
+and 17 days of heavy rain this quarter.
+Soil samples were sent to the lab on May 3.
+- Replace the wind sensor
+- Calibrate the rain gauge
+Total cost: 1,250 USD

@@ -1,0 +1,13 @@
+{
+  "fixture": "field-report",
+  "note": "Text-level golden for testdata/ocr/field-report-*.pdf (1000x750 px image). Text is compared with whitespace removed; boxes (image pixels) within the test's tolerance.",
+  "lines": [
+    {"text": "Quarterly Field Report", "box": [81, 76, 581, 136]},
+    {"text": "The northern station recorded 42 clear days", "box": [80, 203, 678, 243]},
+    {"text": "and 17 days of heavy rain this quarter.", "box": [80, 247, 606, 285]},
+    {"text": "Soil samples were sent to the lab on May 3.", "box": [80, 330, 675, 367]},
+    {"text": "- Replace the wind sensor", "box": [80, 424, 440, 465]},
+    {"text": "- Calibrate the rain gauge", "box": [82, 465, 431, 510]},
+    {"text": "Total cost: 1,250 USD", "box": [82, 565, 383, 600]}
+  ]
+}

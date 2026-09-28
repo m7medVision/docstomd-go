@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/m7medVision/docstomd-go/docs/schemas/ocr-catalog-v1.schema.json",
+  "title": "docstomd-ocr-local model catalog v1",
+  "description": "Lists installable models. The built-in catalog ships with docstomd-ocr-local; user catalogs are passed with --ocr-catalog / --catalog or listed under \"catalogs\" in providers.json. Versioned independently of the OCR protocol and the manifest format.",
+  "type": "object",
+  "required": ["catalog", "models"],
+  "properties": {
+    "catalog": {"const": 1},
+    "models": {"type": "array", "items": {"$ref": "#/$defs/model"}},
+    "runtimes": {"type": "array", "description": "Native libraries for fast backends (ONNX Runtime), pinned per platform. Read from the built-in catalog only; user catalogs cannot supply runtimes."}
+  },
+  "$defs": {
+    "model": {
+      "type": "object",
+      "required": ["id", "languages", "license", "files", "manifest"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+        "family": {"type": "string"},
+        "description": {"type": "string"},
+        "languages": {"type": "array", "items": {"type": "string"}, "description": "Language codes (ISO 639-1, optionally with a script or region such as zh-Hant) used by --ocr-lang."},
+        "license": {"type": "string", "description": "SPDX identifier. Apache-2.0, MIT, BSD-2-Clause and BSD-3-Clause install directly; anything else needs --accept-license <license>."},
+        "files": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/file"}},
+        "manifest": {"$ref": "ocr-manifest-v1.schema.json", "description": "Written to manifest.json in the model directory; its id must equal the entry id and every file it names must be downloaded."}
+      }
+    },
+    "file": {
+      "type": "object",
+      "required": ["path", "source", "sha256", "size"],
+      "properties": {
+        "path": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$", "description": "Destination inside the model directory."},
+        "source": {
+          "type": "string",
+          "pattern": "^(hf://[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*@[0-9a-f]{40}/.+|https://.+)$",
+          "description": "hf://<org>/<repo>@<40-hex commit>/<file> (resolves to $HF_ENDPOINT or https://huggingface.co /<org>/<repo>/resolve/<commit>/<file>; $HF_TOKEN is sent for user catalogs only), or an https:// URL."
+        },
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

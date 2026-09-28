@@ -181,7 +181,7 @@ func Convert(pages []extract.PageResult, opts Options) (string, Complexity) {
 		if opts.DetectLists {
 			if marker, rest, ok := listMarker(ln); ok {
 				flushParagraph()
-				out = append(out, strings.TrimSpace(marker+" "+renderItems(rest, opts, base)))
+				out = append(out, strings.TrimSpace(strings.TrimSpace(marker)+" "+renderItems(rest, opts, base)))
 				prevLine = ln
 				continue
 			}
@@ -419,7 +419,8 @@ func listMarker(ln line) (string, []extract.TextItem, bool) {
 		}
 	}
 	if m := matchesNumberMarker(trimmed); m > 0 {
-		return "", trimFirstRun(ln, m), true
+		digits := strings.TrimRight(trimmed[:m], ".) ")
+		return digits + ". ", trimFirstRun(ln, len(text)-len(trimmed)+m), true
 	}
 	return "", nil, false
 }
@@ -455,7 +456,7 @@ func trimFirstRun(ln line, n int) []extract.TextItem {
 	if len(out) == 0 {
 		return out
 	}
-	out[0].Text = out[0].Text[min(n, len(out[0].Text)):]
+	out[0].Text = strings.TrimLeft(out[0].Text[min(n, len(out[0].Text)):], " ")
 	return out
 }
 

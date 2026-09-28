@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
 	"github.com/m7medVision/docstomd-go"
@@ -24,6 +25,9 @@ const (
 	exitUnsupported = 2
 	exitNeedsOcr    = 3
 	exitError       = 4
+	// exitOCRUnavailable: OCR cannot run here or the engine broke the
+	// protocol (ocrUnavailable, ocrProtocol).
+	exitOCRUnavailable = 5
 )
 
 const usageText = `usage: docstomd <command> [flags] <file>
@@ -31,6 +35,7 @@ const usageText = `usage: docstomd <command> [flags] <file>
 commands:
   convert   convert a document to Markdown
   detect    report the detected document format
+  ocr       manage local OCR models: ocr list, ocr install <id>...
   version   print the version
 
 common flags:
@@ -39,14 +44,27 @@ common flags:
 convert OCR flags (PDF):
   --ocr off|auto|force   off fails scanned PDFs with exit 3; auto OCRs routed pages; force OCRs all
   --ocr-dry-run          with --ocr auto|force, report billed pages and estimated cost without calling the provider
-  --ocr-max-pages N      bill at most N pages per document
-  --ocr-model ID         pin the Mistral OCR model (default mistral-ocr-latest)
-  OCR reads MISTRAL_API_KEY from the environment.
+  --ocr-max-pages N      send at most N pages per document to OCR
+  --ocr-max-pages-run N  send at most N pages to OCR across all inputs
+  --ocr-provider P       mistral, local (docstomd-ocr-local), exec:<path> for any
+                         engine speaking the docstomd OCR protocol
+                         (docs/ocr-protocol.md), or a name from
+                         $XDG_CONFIG_HOME/docstomd/providers.json;
+                         default: mistral when MISTRAL_API_KEY is set, else local
+  --ocr-model ID         Mistral model (default mistral-ocr-latest) or local model id
+  --ocr-lang L           local: first installed model reading language L (e.g. ar)
+  --ocr-backend B        local: inference backend (auto, go, onnx)
+  --ocr-catalog C        local: extra model catalog file or https URL (repeatable)
+  Mistral reads MISTRAL_API_KEY from the environment.
+
+convert several files:
+  docstomd convert --out-dir DIR a.pdf b.pdf   one OCR engine session serves all inputs
 
 run 'docstomd <command> --help' for every flag.
 
 exit codes:
-  0 success, 1 usage, 2 unsupported input, 3 OCR required, 4 conversion error
+  0 success, 1 usage, 2 unsupported input, 3 OCR required, 4 conversion error,
+  5 OCR engine unavailable or broke the protocol
 `
 
 func main() {
@@ -66,6 +84,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runConvert(ctx, rest, stdout, stderr)
 	case "detect":
 		return runDetect(ctx, rest, stdout, stderr)
+	case "ocr":
+		return runOCR(ctx, rest, os.Stdin, stdout, stderr)
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usageText)
 		return exitOK
@@ -82,15 +102,22 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	fs := flag.NewFlagSet("docstomd convert", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprint(fs.Output(), "usage: docstomd convert [flags] <file>\nflags:\n")
+		fmt.Fprint(fs.Output(), "usage: docstomd convert [flags] <file> [<file>...]\nflags:\n")
 		fs.PrintDefaults()
 	}
 	jsonOut := fs.Bool("json", false, "emit JSON with metadata")
 	itemsJSON := fs.Bool("items-json", false, "emit positioned extraction items as JSON")
+	outDir := fs.String("out-dir", "", "write <name>.md (or .json with --json) per input into this directory; required for several inputs")
 	ocrMode := fs.String("ocr", "off", "OCR mode: off, auto, or force")
 	ocrDryRun := fs.Bool("ocr-dry-run", false, "with --ocr auto|force, report billed OCR pages and estimated cost without calling the provider")
-	ocrMaxPages := fs.Int("ocr-max-pages", 0, "maximum pages billed for OCR (0 = unlimited)")
-	ocrModel := fs.String("ocr-model", "", "Mistral OCR model id (default mistral-ocr-latest; pin a version for reproducibility)")
+	ocrMaxPages := fs.Int("ocr-max-pages", 0, "maximum pages sent to OCR per document (0 = unlimited)")
+	ocrMaxPagesRun := fs.Int("ocr-max-pages-run", 0, "maximum pages sent to OCR across all inputs (0 = unlimited)")
+	ocrModel := fs.String("ocr-model", "", "OCR model: the Mistral model id (default mistral-ocr-latest), or a local model id")
+	ocrLang := fs.String("ocr-lang", "", "local OCR: pick the first installed model that reads this language (e.g. en, ar)")
+	ocrBackend := fs.String("ocr-backend", "", "local OCR inference backend: auto, go, onnx (default auto: onnx when installed, else go)")
+	var ocrCatalogs stringList
+	fs.Var(&ocrCatalogs, "ocr-catalog", "local OCR: extra model catalog (file or https URL); repeatable")
+	ocrProvider := fs.String("ocr-provider", "", "OCR provider: mistral, local, exec:<path>, or a name from the config file (default: mistral when MISTRAL_API_KEY is set, else local)")
 	if wantsHelp(args) {
 		fs.SetOutput(stdout)
 		fs.Usage()
@@ -100,50 +127,156 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return exitUsage
 	}
 	files := fs.Args()
-	if len(files) != 1 {
-		fmt.Fprintln(stderr, "docstomd convert: exactly one input file is required")
+	if len(files) == 0 || (len(files) > 1 && *outDir == "") {
+		fmt.Fprintln(stderr, "docstomd convert: one input file is required (several need --out-dir)")
 		fs.Usage()
 		return exitUsage
 	}
-	data, err := os.ReadFile(files[0])
-	if err != nil {
-		return reportError(stdout, stderr, *jsonOut, err)
-	}
 	if *itemsJSON {
+		if len(files) != 1 || *outDir != "" {
+			fmt.Fprintln(stderr, "docstomd convert: --items-json takes exactly one input and no --out-dir")
+			return exitUsage
+		}
+		data, err := os.ReadFile(files[0])
+		if err != nil {
+			return reportError(stdout, stderr, *jsonOut, err)
+		}
 		items, err := docstomd.ExtractItems(ctx, bytes.NewReader(data))
 		if err != nil {
 			return reportError(stdout, stderr, *jsonOut, err)
 		}
 		return writeJSON(stdout, stderr, items)
 	}
-	opts := docstomd.Options{FileName: files[0], OCR: docstomd.OCROptions{
-		Provider:       docstomd.NewMistralProvider(docstomd.MistralOptions{Model: *ocrModel}),
-		MaxPagesPerDoc: *ocrMaxPages,
-		DryRun:         *ocrDryRun,
-	}}
+	var mode docstomd.OCRMode
 	switch *ocrMode {
 	case "off", "":
 	case "auto":
-		opts.OCR.Mode = docstomd.OCRAuto
+		mode = docstomd.OCRAuto
 	case "force":
-		opts.OCR.Mode = docstomd.OCRForce
+		mode = docstomd.OCRForce
 	default:
 		fmt.Fprintf(stderr, "docstomd convert: unknown --ocr mode %q (off, auto, force)\n", *ocrMode)
 		return exitUsage
 	}
-	if *ocrDryRun && opts.OCR.Mode == docstomd.OCROff {
+	if *ocrDryRun && mode == docstomd.OCROff {
 		fmt.Fprintln(stderr, "docstomd convert: --ocr-dry-run needs --ocr auto or --ocr force")
 		return exitUsage
 	}
-	result, err := docstomd.Convert(ctx, bytes.NewReader(data), opts)
+	outputs, err := outputPaths(files, *outDir, *jsonOut)
 	if err != nil {
-		return reportError(stdout, stderr, *jsonOut, err)
+		fmt.Fprintf(stderr, "docstomd convert: %v\n", err)
+		return exitUsage
 	}
-	if *jsonOut {
+	var provider docstomd.OCRProvider
+	if mode != docstomd.OCROff {
+		cfg, err := loadConfig()
+		if err != nil {
+			fmt.Fprintf(stderr, "docstomd convert: %v\n", err)
+			return exitUsage
+		}
+		provider, err = resolveProvider(providerFlags{spec: *ocrProvider, model: *ocrModel, lang: *ocrLang, backend: *ocrBackend, catalogs: ocrCatalogs}, cfg)
+		if err != nil {
+			fmt.Fprintf(stderr, "docstomd convert: %v\n", err)
+			return exitUsage
+		}
+		if closer, ok := provider.(io.Closer); ok {
+			defer func() { _ = closer.Close() }()
+		}
+	}
+	ocrOpts := docstomd.OCROptions{
+		Mode:           mode,
+		Provider:       provider,
+		MaxPagesPerDoc: *ocrMaxPages,
+		MaxPagesPerRun: *ocrMaxPagesRun,
+		Run:            &docstomd.OCRRun{},
+		DryRun:         *ocrDryRun,
+	}
+	if outputs == nil {
+		return convertToStdout(ctx, files[0], ocrOpts, *jsonOut, stdout, stderr)
+	}
+	if err := os.MkdirAll(*outDir, 0o755); err != nil {
+		return reportError(stdout, stderr, false, err)
+	}
+	exit := exitOK
+	for i, file := range files {
+		code := convertToFile(ctx, file, outputs[i], ocrOpts, *jsonOut, stderr)
+		if exit == exitOK {
+			exit = code
+		}
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return exit
+}
+
+func convertToStdout(ctx context.Context, file string, ocrOpts docstomd.OCROptions, jsonOut bool, stdout, stderr io.Writer) int {
+	result, err := convertFile(ctx, file, ocrOpts)
+	if err != nil {
+		return reportError(stdout, stderr, jsonOut, err)
+	}
+	if jsonOut {
 		return writeJSON(stdout, stderr, result)
 	}
 	fmt.Fprint(stdout, result.Markdown)
 	return exitOK
+}
+
+// convertToFile converts one input of an --out-dir run; errors go to stderr
+// prefixed with the input name.
+func convertToFile(ctx context.Context, file, output string, ocrOpts docstomd.OCROptions, jsonOut bool, stderr io.Writer) int {
+	result, err := convertFile(ctx, file, ocrOpts)
+	if err != nil {
+		fmt.Fprintf(stderr, "docstomd: %s: %s\n", file, humanError(err))
+		return exitCodeFor(docstomd.ErrorCodeOf(err))
+	}
+	var body []byte
+	if jsonOut {
+		body, err = json.Marshal(result)
+		body = append(body, '\n')
+	} else {
+		body = []byte(result.Markdown)
+	}
+	if err == nil {
+		err = os.WriteFile(output, body, 0o644)
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "docstomd: %s: %v\n", file, err)
+		return exitError
+	}
+	return exitOK
+}
+
+func convertFile(ctx context.Context, file string, ocrOpts docstomd.OCROptions) (*docstomd.Result, error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	return docstomd.Convert(ctx, bytes.NewReader(data), docstomd.Options{FileName: file, OCR: ocrOpts})
+}
+
+// outputPaths maps inputs to <outDir>/<name>.md (or .json); nil without
+// outDir. Two inputs mapping to one output are rejected.
+func outputPaths(files []string, outDir string, jsonOut bool) ([]string, error) {
+	if outDir == "" {
+		return nil, nil
+	}
+	ext := ".md"
+	if jsonOut {
+		ext = ".json"
+	}
+	seen := map[string]string{}
+	out := make([]string, len(files))
+	for i, file := range files {
+		base := filepath.Base(file)
+		path := filepath.Join(outDir, strings.TrimSuffix(base, filepath.Ext(base))+ext)
+		if prev, ok := seen[path]; ok {
+			return nil, fmt.Errorf("%s and %s would both write %s", prev, file, path)
+		}
+		seen[path] = file
+		out[i] = path
+	}
+	return out, nil
 }
 
 func runDetect(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -204,6 +337,12 @@ var flagsTakingValue = map[string]bool{
 	"--ocr": true, "-ocr": true,
 	"--ocr-max-pages": true, "-ocr-max-pages": true,
 	"--ocr-model": true, "-ocr-model": true,
+	"--ocr-provider": true, "-ocr-provider": true,
+	"--ocr-max-pages-run": true, "-ocr-max-pages-run": true,
+	"--out-dir": true, "-out-dir": true,
+	"--ocr-lang": true, "-ocr-lang": true,
+	"--ocr-backend": true, "-ocr-backend": true,
+	"--ocr-catalog": true, "-ocr-catalog": true,
 }
 
 func reorderFlags(args []string) []string {
@@ -263,6 +402,8 @@ func exitCodeFor(code docstomd.ErrorCode) int {
 		return exitNeedsOcr
 	case docstomd.CodeUnsupported:
 		return exitUnsupported
+	case docstomd.CodeOCRUnavailable, docstomd.CodeOCRProtocol:
+		return exitOCRUnavailable
 	default:
 		return exitError
 	}

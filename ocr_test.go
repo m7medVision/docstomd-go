@@ -278,3 +278,38 @@ func shiftForTest(s string) string {
 	}
 	return string(out)
 }
+
+// linesOCRProvider answers every page with text lines on a 150 dpi image.
+type linesOCRProvider struct{ lines map[int][]OCRLine }
+
+func (p *linesOCRProvider) Name() string         { return "lines" }
+func (p *linesOCRProvider) EstPageCost() float64 { return 0 }
+func (p *linesOCRProvider) Recognize(ctx context.Context, doc OCRDocument, pages []int) ([]OCRPageResult, error) {
+	var out []OCRPageResult
+	for _, n := range pages {
+		out = append(out, OCRPageResult{Page: n, Width: 1275, Height: 1650, Lines: p.lines[n]})
+	}
+	return out, nil
+}
+
+func TestOCRLinesRenderLikeNativePages(t *testing.T) {
+	provider := &linesOCRProvider{lines: map[int][]OCRLine{
+		1: {
+			{Text: "Scanned Title", Box: OCRRect{X0: 150, Y0: 150, X1: 700, Y1: 210}, Confidence: 0.97},
+			{Text: "Body text recognized from the scanned image.", Box: OCRRect{X0: 150, Y0: 260, X1: 1000, Y1: 290}, Confidence: 0.95},
+			{Text: "- a list item", Box: OCRRect{X0: 150, Y0: 360, X1: 500, Y1: 390}, Confidence: 0.95},
+		},
+		2: {{Text: "unsure", Box: OCRRect{X0: 150, Y0: 150, X1: 300, Y1: 180}, Confidence: 0.3}},
+	}}
+	result, err := Convert(context.Background(), reader(scannedFixture(t)), Options{OCR: OCROptions{Mode: OCRAuto, Provider: provider}})
+	if err != nil {
+		t.Fatalf("Convert: %v", err)
+	}
+	want := "# Scanned Title\n\nBody text recognized from the scanned image.\n\n- a list item"
+	if !strings.Contains(result.Markdown, want) {
+		t.Errorf("markdown = %q, want it to contain %q", result.Markdown, want)
+	}
+	if fmt.Sprint(result.NeedsReview) != "[2]" {
+		t.Errorf("needs review = %v, want [2] (weak lines keep native text)", result.NeedsReview)
+	}
+}

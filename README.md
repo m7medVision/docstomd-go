@@ -7,8 +7,10 @@ GitHub-Flavored Markdown, as a Go library and a single CLI binary.
   extraction or to OCR. The geometry-driven pipeline emits headings, lists,
   paragraphs and pipe tables.
 - **OCR only where needed:** scanned or garbled pages go to a pluggable OCR
-  provider (Mistral ships as the default). Page caps and a dry run keep the
-  bill known before it is incurred.
+  provider: Mistral, the local CPU engine `docstomd-ocr-local`, or any
+  program you write that speaks the [OCR protocol](docs/ocr-protocol.md), no
+  PR needed. Page caps and a dry run keep the bill known before it is
+  incurred.
 - **Office formats:** DOCX, XLSX and PPTX share one intermediate
   representation and one Markdown serializer.
 - **Measured:** local benchmarks gate quality and speed against committed
@@ -34,7 +36,9 @@ go get github.com/m7medVision/docstomd-go
 
 ```text
 docstomd convert [flags] <file>    convert a document to Markdown
+docstomd convert --out-dir DIR [flags] <file>...   convert several documents
 docstomd detect  [flags] <file>    report the detected format (and PDF classification)
+docstomd ocr list | install <id>   manage local OCR models (runs docstomd-ocr-local)
 docstomd help                      print usage
 ```
 
@@ -48,8 +52,14 @@ appear before or after the file.
 | `--json` | off | Emit a JSON object with the Markdown and metadata instead of bare Markdown |
 | `--ocr off\|auto\|force` | `off` | OCR mode (see [OCR](#ocr)) |
 | `--ocr-dry-run` | off | With `--ocr auto` or `force`, report the pages that would be billed and the estimated cost; never calls the provider. Without one of those modes it is a usage error |
-| `--ocr-max-pages N` | `0` (unlimited) | Maximum pages billed for OCR per document |
-| `--ocr-model ID` | `mistral-ocr-latest` | Mistral OCR model; pin a dated version for reproducible output |
+| `--ocr-max-pages N` | `0` (unlimited) | Maximum pages sent to OCR per document |
+| `--ocr-max-pages-run N` | `0` (unlimited) | Maximum pages sent to OCR across all inputs of the run |
+| `--ocr-provider P` | see [Providers](#providers) | `mistral`, `local`, `exec:<path>` or a provider name from the config file |
+| `--ocr-model ID` | provider default | Mistral model (`mistral-ocr-latest`; pin a dated version for reproducible output) or local model id |
+| `--ocr-lang L` | none | Local OCR: first installed model that reads language `L` |
+| `--ocr-backend B` | `auto` | Local OCR inference backend: `go`, `onnx`, or `auto` (onnx when installed) |
+| `--ocr-catalog C` | none | Local OCR: extra model catalog file or `https://` URL (repeatable) |
+| `--out-dir DIR` | none | Write `<name>.md` (`<name>.json` with `--json`) per input into `DIR`; required for several inputs, which then share one OCR engine session and one page budget |
 | `--items-json` | off | PDF debugging: dump positioned text items as JSON |
 
 `--json` output (a one-page PDF with a garbled text layer, `--ocr auto --ocr-dry-run`):
@@ -94,13 +104,17 @@ with reasons. Detection never calls a provider.
 | 2 | Unsupported input format |
 | 3 | OCR required: the PDF is scanned or image-based and `--ocr` is `off` |
 | 4 | Any other conversion error (malformed, encrypted, I/O, OCR provider) |
+| 5 | OCR cannot run here (`ocrUnavailable`: no engine, runtime or model) or the OCR engine broke the protocol (`ocrProtocol`) |
 
 With `--json`, errors are printed to stdout as
 `{"error": {"code": "...", "message": "...", "pages": [...], "page_count": N}}`.
 The stable codes are `unsupported`, `needsOcr`, `malformed`, `encrypted`,
 `resourceLimit`, `missingPart`, `io`, and for OCR `ocrAuth` (API key missing
 or rejected), `ocrRateLimited` (still rate limited after retries),
-`ocrProvider` (any other provider failure) and `canceled` (interrupted).
+`ocrProvider` (any other provider failure), `ocrUnavailable`, `ocrProtocol`
+and `canceled` (interrupted). With several inputs, each failure is reported
+on stderr as `docstomd: <file>: <error>`, the other inputs still convert, and
+the exit code is that of the first failure.
 
 ## Formats
 
@@ -308,12 +322,132 @@ finds its text layer garbled (`suspected_garbled_text`).
 | Mode | Pages sent to the provider |
 |------|----------------------------|
 | `off` (default) | None. A scanned or image-based document fails with `needsOcr` (exit 3) |
-| `auto` | Exactly the routed pages, batched into one API call per document |
+| `auto` | Exactly the routed pages, batched into one provider call per document |
 | `force` | Every page of the document, in one call |
 
 OCR output replaces a page's native Markdown only when it passes the same
 text-quality checks. If the answer is empty, low-confidence or garbled, the
 native text is kept and the page is listed in `needs_review`.
+
+### Providers
+
+| `--ocr-provider` | What runs |
+|---|---|
+| `mistral` | Mistral OCR API (needs `MISTRAL_API_KEY`) |
+| `local` | `docstomd-ocr-local`, the local CPU engine, found via `$DOCSTOMD_OCR_LOCAL`, next to the `docstomd` binary, then `PATH` |
+| `exec:<path>` | Any program speaking the [docstomd OCR protocol](docs/ocr-protocol.md) |
+| `<name>` or `exec:<name>` | A provider named in the config file |
+
+Without the flag, docstomd uses the config file's `default`, else `mistral`
+when `MISTRAL_API_KEY` is set, else `local`. A missing engine fails with
+`ocrUnavailable` (exit 5) and an install hint.
+
+### Local OCR
+
+`docstomd-ocr-local` runs OCR models on your CPU: no API key, no network
+after install, no cgo. It lives in its own Go module (`ocr/`, Go 1.27) so
+the core library keeps its tiny dependency set.
+
+```sh
+go install github.com/m7medVision/docstomd-go/ocr/cmd/docstomd-ocr-local@latest
+docstomd ocr list                      # catalog models, sizes, licences, what is installed
+docstomd ocr install pp-ocrv5-mobile   # download and SHA-256-verify a model
+docstomd convert --ocr auto --ocr-provider local scan.pdf
+```
+
+Nothing is downloaded behind your back: models arrive only through
+`docstomd ocr install`, into `$DOCSTOMD_OCR_MODELS` or the user data directory
+(`~/.local/share/docstomd/ocr/models` on Linux). Every file is pinned to a
+Hugging Face commit (`hf://<org>/<repo>@<commit>/<file>`, honouring
+`HF_ENDPOINT`) or an `https://` URL, and checked against its SHA-256. A failed
+download leaves no partial model.
+
+- **Pick a model** with `--ocr-model <id>` or a language with
+  `--ocr-lang <code>`. Otherwise docstomd uses the only installed model, else
+  the first installed one in catalog order.
+- **Pick a backend** with `--ocr-backend`:
+  - `go`: pure Go, no download, the reference. Slow: several seconds per page.
+  - `onnx`: native ONNX Runtime speed, about 5× faster per page. Install it with
+    `docstomd ocr install --backend onnx`, which fetches the pinned,
+    SHA-256-checked ONNX Runtime 1.30.0 release for Linux x64/arm64 or macOS
+    arm64. It is loaded at run time through purego, still without cgo.
+  - `auto` (default): `onnx` when its runtime is installed, else `go` with a
+    one-line hint.
+- **Bring your own models** with a catalog file or URL
+  (`--ocr-catalog`, or `"catalogs": [...]` in `providers.json`), following
+  [`docs/schemas/ocr-catalog-v1.schema.json`](docs/schemas/ocr-catalog-v1.schema.json).
+  Each model is a [manifest](docs/schemas/ocr-manifest-v1.schema.json) plus
+  its files. `HF_TOKEN` is sent for user catalogs' Hugging Face sources. The
+  built-in catalog lists permissively licensed models only; a model under any
+  other licence needs `docstomd ocr install --accept-license <licence> <id>`.
+
+| Model | Languages | Size | Licence |
+|---|---|---|---|
+| `pp-ocrv5-mobile` (default) | Chinese, English, Japanese | 27 MB | Apache-2.0 |
+| `pp-ocrv5-server` | Chinese, English, Japanese | 171 MB | Apache-2.0 |
+| `pp-ocrv5-arabic-mobile` | Arabic, Persian, Urdu, Uyghur, Pashto, Kurdish, Sindhi (+ Latin, digits) | 19 MB | Apache-2.0 |
+| `doctr-db-mobilenet-crnn-vgg16` | Latin-script languages (docTR, word boxes) | 76 MB | Apache-2.0 |
+| `doctr-db-mobilenet-parseq` | Latin-script languages | 107 MB | Apache-2.0 |
+| `doctr-fast-base-crnn-vgg16` | Latin-script languages | 101 MB | Apache-2.0 |
+| `doctr-fast-base-parseq` | Latin-script languages | 132 MB | Apache-2.0 |
+
+Models are manifests over shared building blocks (DB detection with rotated
+or straight boxes, CTC and attention decoders, several resize and padding
+rules), so a new family needs a manifest, not code. On `onnx`, a model whose
+graph ONNX Runtime cannot build (docTR's PARSeq) runs on `go` instead, with
+a one-line note.
+
+Right-to-left lines come out in logical (reading) order: models whose
+manifest declares `output_order: visual` are reordered with the Unicode
+bidi rules, keeping embedded numbers and Latin words intact, and all OCR text
+is NFKC-folded like native PDF text. `docstomd convert --ocr auto
+--ocr-provider local --ocr-lang ar scan.pdf` picks the Arabic model.
+
+### Bring your own engine
+
+Wrap any OCR engine or vendor API in a small program that speaks the
+[OCR protocol](docs/ocr-protocol.md): JSON lines over stdin/stdout, the
+whole PDF plus a page list in, Markdown or text lines with boxes out. Lines
+are laid out with the same rules as native PDF pages. No docstomd PR, fork
+or rebuild is needed.
+
+1. Copy a template: [`examples/ocr-adapter/template-go`](examples/ocr-adapter/template-go) or
+   [`examples/ocr-adapter/template-python`](examples/ocr-adapter/template-python) (standard
+   library only), and replace `recognize` with your engine.
+2. Try it: `docstomd convert --ocr auto --ocr-provider exec:./my-adapter scan.pdf`.
+3. Register it by name in `$XDG_CONFIG_HOME/docstomd/providers.json`
+   (`~/.config/docstomd/providers.json`):
+
+   ```json
+   {
+     "version": 1,
+     "default": "tesseract",
+     "providers": {
+       "tesseract": {"command": "docstomd-ocr-tesseract", "args": ["--lang", "eng+deu"], "local": true},
+       "my-vendor": {"command": "/opt/ocr/vendor-adapter", "env": {"VENDOR_REGION": "eu"}, "page_cost": 0.002}
+     }
+   }
+   ```
+
+   `command` is looked up on `PATH`, or resolved against the config file's
+   directory when it is a relative path. `env` adds to the inherited
+   environment. `page_cost` (USD) feeds dry-run estimates. `local` marks an
+   engine that runs on this machine. Then use `--ocr-provider my-vendor`.
+
+A ready adapter for Tesseract lives in
+[`examples/ocr-adapter/docstomd-ocr-tesseract`](examples/ocr-adapter/docstomd-ocr-tesseract) (needs
+`tesseract` and poppler's `pdftoppm`):
+
+```sh
+go install github.com/m7medVision/docstomd-go/examples/ocr-adapter/docstomd-ocr-tesseract@latest
+docstomd convert --ocr auto --ocr-provider exec:docstomd-ocr-tesseract scan.pdf
+```
+
+**Compatibility promise.** The protocol is versioned. Within a version only
+optional fields are added, and both sides ignore fields they do not know. A
+breaking change bumps the version, and docstomd keeps accepting the previous
+version for at least one release cycle. The conformance checks that the
+examples pass live in `examples/ocr-adapter/conformance_test.go`.
 
 ### Mistral setup
 
@@ -405,7 +539,11 @@ still matches `docstomd.ErrOCRMissingKey`, `ErrOCRUnauthorized` and
 
 `OCROptions.Provider` accepts any `docstomd.OCRProvider` implementation
 (`Name`, `EstPageCost`, `Recognize`). The same interface is how you plug in
-another vendor or a fake in tests.
+another vendor or a fake in tests. `Recognize` returns `OCRPageResult`s with
+either `Markdown` or `Lines` (`OCRLine` text plus an `OCRRect` box, origin
+top-left, in a `Width`×`Height` space). `NewExternalOCRProvider` drives an
+engine speaking the OCR protocol and `NewLocalOCRProvider` the local engine;
+both keep one engine process for their lifetime, so `Close` them when done.
 
 `MaxPagesPerDoc` caps each document. `MaxPagesPerRun` caps a run, which is
 one `Convert` call unless you share an `OCRRun` across calls. Calls carrying

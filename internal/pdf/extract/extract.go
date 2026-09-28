@@ -56,7 +56,7 @@ func Extract(doc *parse.Document) []PageResult {
 				hasIssues = true
 			}
 		}
-		results = append(results, PageResult{Items: items, Rects: it.rects, Lines: it.lines, HasEncodingIssues: hasIssues, LostContent: it.lostContent})
+		results = append(results, PageResult{Width: box.x1 - box.x0, Height: box.y1 - box.y0, Items: items, Rects: it.rects, Lines: it.lines, HasEncodingIssues: hasIssues, LostContent: it.lostContent})
 	}
 	return results
 }

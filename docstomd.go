@@ -17,6 +17,7 @@ import (
 	"github.com/m7medVision/docstomd-go/internal/formats/xlsx"
 	"github.com/m7medVision/docstomd-go/internal/model"
 	pdfocr "github.com/m7medVision/docstomd-go/internal/ocr"
+	"github.com/m7medVision/docstomd-go/internal/ocr/external"
 	"github.com/m7medVision/docstomd-go/internal/ocr/mistral"
 	"github.com/m7medVision/docstomd-go/internal/opc"
 	pdfdetect "github.com/m7medVision/docstomd-go/internal/pdf/detect"
@@ -67,6 +68,18 @@ type OCRProvider = pdfocr.Provider
 // OCRDocument is the provider call payload.
 type OCRDocument = pdfocr.Document
 
+// OCRPageResult is one recognized page: Markdown, or text lines with boxes
+// that are rendered with the same rules as native PDF pages.
+type OCRPageResult = pdfocr.PageResult
+
+// OCRLine is one recognized text line; OCRRect is its box (origin top-left,
+// y down, in the page result's Width×Height space).
+type (
+	OCRLine = pdfocr.Line
+	OCRRect = pdfocr.Rect
+	OCRBox  = pdfocr.Box
+)
+
 type OCRMode = pdfocr.Mode
 
 const (
@@ -98,7 +111,34 @@ var (
 	ErrOCRMissingKey   = mistral.ErrMissingAPIKey
 	ErrOCRUnauthorized = mistral.ErrUnauthorized
 	ErrOCRRateLimited  = mistral.ErrRateLimited
+	// ErrOCRUnavailable: an external engine cannot run here.
+	ErrOCRUnavailable = external.ErrUnavailable
+	// ErrOCRProtocol: an external engine broke the OCR protocol.
+	ErrOCRProtocol = external.ErrProtocol
 )
+
+// ExternalOCRConfig says how to start an external OCR engine that speaks the
+// docstomd OCR protocol (docs/ocr-protocol.md).
+type ExternalOCRConfig = external.Config
+
+// ExternalOCRProvider drives an external OCR engine. One engine process
+// serves every request until Close.
+type ExternalOCRProvider = external.Provider
+
+// NewLocalOCRProvider returns a provider for docstomd's local engine,
+// docstomd-ocr-local, found via $DOCSTOMD_OCR_LOCAL, next to the running
+// executable, then PATH. args are passed to the engine (for example
+// "--model", "pp-ocrv5-mobile"). A missing engine fails requests with
+// ErrOCRUnavailable and an install hint.
+func NewLocalOCRProvider(args ...string) *ExternalOCRProvider {
+	return external.New(external.LocalConfig(args...))
+}
+
+// NewExternalOCRProvider returns a provider for an external engine; nothing
+// starts until the first request.
+func NewExternalOCRProvider(cfg ExternalOCRConfig) *ExternalOCRProvider {
+	return external.New(cfg)
+}
 
 // NewMistralProvider returns the Mistral OCR provider, the default when
 // OCROptions.Provider is nil.
@@ -311,6 +351,13 @@ func Convert(ctx context.Context, r io.Reader, opts Options) (*Result, error) {
 			provider = NewMistralProvider(MistralOptions{})
 		}
 		router := &pdfocr.Router{MaxPagesPerDoc: opts.OCR.MaxPagesPerDoc, MaxPagesPerRun: opts.OCR.MaxPagesPerRun, Budget: opts.OCR.Run}
+		router.Lines = func(result pdfocr.PageResult) string {
+			var w, h float64
+			if result.Page >= 1 && result.Page <= len(pages) {
+				w, h = pages[result.Page-1].Width, pages[result.Page-1].Height
+			}
+			return pdfocr.LinesMarkdown(result, w, h, mdOpts)
+		}
 		ocrResult, err = router.Run(ctx, provider, pdfocr.Document{Bytes: data}, opts.OCR.Mode, routed, detection.PageCount, opts.OCR.DryRun)
 		if err != nil {
 			return nil, mapOCRError(ctx, err)
