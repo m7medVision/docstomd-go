@@ -27,6 +27,9 @@ var builtinJSON []byte
 type Catalog struct {
 	Format int     `json:"catalog"`
 	Models []Entry `json:"models"`
+	// Runtimes are native libraries for fast backends. Only the built-in
+	// catalog's runtimes are used.
+	Runtimes []Runtime `json:"runtimes,omitempty"`
 	// Origin is Builtin, or the path or URL the catalog was read from.
 	Origin string `json:"-"`
 }

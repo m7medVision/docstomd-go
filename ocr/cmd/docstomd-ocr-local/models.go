@@ -111,6 +111,18 @@ func runList(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "\nmodels directory: %s\n", modelsRoot(*root))
+	for _, name := range []string{"onnx"} {
+		rt, err := catalog.RuntimeFor(name)
+		if err != nil {
+			fmt.Fprintf(stdout, "backend %s: not available on this platform\n", name)
+			continue
+		}
+		state := "not installed (docstomd ocr install --backend " + name + ")"
+		if rt.Installed() {
+			state = "installed in " + rt.Dir()
+		}
+		fmt.Fprintf(stdout, "backend %s: %s %s, %s\n", name, rt.Name, rt.Version, state)
+	}
 	return 0
 }
 
@@ -120,12 +132,25 @@ func runInstall(ctx context.Context, args []string, stderr io.Writer) int {
 	root, catalogs := catalogFlags(fs)
 	var accept stringList
 	fs.Var(&accept, "accept-license", "accept a restricted licence (SPDX id, or model id); repeatable")
-	if err := fs.Parse(reorder(args, map[string]bool{"--models": true, "--catalog": true, "--accept-license": true, "-models": true, "-catalog": true, "-accept-license": true})); err != nil {
+	runtimeFor := fs.String("backend", "", "also install the native runtime of this backend (onnx)")
+	if err := fs.Parse(reorder(args, map[string]bool{"--models": true, "--catalog": true, "--accept-license": true, "--backend": true, "-models": true, "-catalog": true, "-accept-license": true, "-backend": true})); err != nil {
 		return 1
 	}
-	if fs.NArg() == 0 {
-		fmt.Fprintln(stderr, "docstomd-ocr-local install: name at least one model id (see: list)")
+	if fs.NArg() == 0 && *runtimeFor == "" {
+		fmt.Fprintln(stderr, "docstomd-ocr-local install: name at least one model id (see: list) or --backend onnx")
 		return 1
+	}
+	if *runtimeFor != "" {
+		rt, err := catalog.RuntimeFor(*runtimeFor)
+		if err != nil {
+			fmt.Fprintln(stderr, "docstomd-ocr-local:", err)
+			return 1
+		}
+		if err := catalog.InstallRuntime(ctx, rt, stderr); err != nil {
+			fmt.Fprintln(stderr, "docstomd-ocr-local:", err)
+			return 1
+		}
+		fmt.Fprintf(stderr, "%s %s: installed in %s\n", rt.Name, rt.Version, rt.Dir())
 	}
 	set, err := catalog.LoadSet(ctx, *catalogs)
 	if err != nil {

@@ -81,7 +81,7 @@ func TestNoModelIsUnavailableWithHint(t *testing.T) {
 
 func TestRecognizeReturnsPageLines(t *testing.T) {
 	dir := ocrtest.ModelDir(t, "pp-ocrv5-mobile")
-	send, _ := session(t, "--model-dir", dir, "--backend", "go")
+	send, _ := session(t, "--model-dir", dir, "--backend", ocrtest.Backend())
 	pdf := base64.StdEncoding.EncodeToString(ocrtest.Fixture(t, "field-report-flate.pdf"))
 	resp := send(map[string]any{"type": "recognize", "id": "7", "pdf": pdf, "pages": []int{1}})
 	pages, _ := resp["pages"].([]any)
@@ -222,7 +222,7 @@ func TestPagesWithoutImages(t *testing.T) {
 			if _, err := exec.LookPath("pdftoppm"); err != nil {
 				t.Skip("pdftoppm not installed")
 			}
-			send, _ := session(t, "--model-dir", dir, "--backend", "go")
+			send, _ := session(t, "--model-dir", dir, "--backend", ocrtest.Backend())
 			resp := send(map[string]any{"type": "recognize", "id": "1", "pdf": pdf, "pages": []int{1}})
 			pages, _ := resp["pages"].([]any)
 			if len(pages) != 1 {
@@ -244,7 +244,7 @@ func TestPagesWithoutImages(t *testing.T) {
 		})
 		t.Run(fixture+"/no-renderer", func(t *testing.T) {
 			t.Setenv("PATH", "")
-			send, _ := session(t, "--model-dir", dir, "--backend", "go")
+			send, _ := session(t, "--model-dir", dir, "--backend", ocrtest.Backend())
 			resp := send(map[string]any{"type": "recognize", "id": "1", "pdf": pdf, "pages": []int{1}})
 			if pages, _ := resp["pages"].([]any); resp["type"] != "result" || len(pages) != 0 {
 				t.Errorf("resp = %v, want a result with the page unanswered", resp)

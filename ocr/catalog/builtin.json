@@ -507,5 +507,61 @@
         }
       }
     }
+  ],
+  "runtimes": [
+    {
+      "name": "onnxruntime",
+      "backend": "onnx",
+      "version": "1.30.0",
+      "platform": "linux/amd64",
+      "license": "MIT",
+      "archive": {
+        "path": "onnxruntime-linux-x64-1.30.0.tgz",
+        "source": "https://github.com/microsoft/onnxruntime/releases/download/v1.30.0/onnxruntime-linux-x64-1.30.0.tgz",
+        "sha256": "a5ed5a3cac51fbb2e90da632ae43d19212faaa20e76484e62bcb7c23ddb3b3fd",
+        "size": 11306877
+      },
+      "library": "onnxruntime-linux-x64-1.30.0/lib/libonnxruntime.so.1.30.0",
+      "extra": [
+        "onnxruntime-linux-x64-1.30.0/LICENSE",
+        "onnxruntime-linux-x64-1.30.0/ThirdPartyNotices.txt"
+      ]
+    },
+    {
+      "name": "onnxruntime",
+      "backend": "onnx",
+      "version": "1.30.0",
+      "platform": "linux/arm64",
+      "license": "MIT",
+      "archive": {
+        "path": "onnxruntime-linux-aarch64-1.30.0.tgz",
+        "source": "https://github.com/microsoft/onnxruntime/releases/download/v1.30.0/onnxruntime-linux-aarch64-1.30.0.tgz",
+        "sha256": "e16a27a8ed330bbc698df7330b0cf56e722f354e3bcc92118682c74ef3c3e3da",
+        "size": 10269495
+      },
+      "library": "onnxruntime-linux-aarch64-1.30.0/lib/libonnxruntime.so.1.30.0",
+      "extra": [
+        "onnxruntime-linux-aarch64-1.30.0/LICENSE",
+        "onnxruntime-linux-aarch64-1.30.0/ThirdPartyNotices.txt"
+      ]
+    },
+    {
+      "name": "onnxruntime",
+      "backend": "onnx",
+      "version": "1.30.0",
+      "platform": "darwin/arm64",
+      "license": "MIT",
+      "archive": {
+        "path": "onnxruntime-osx-arm64-1.30.0.tgz",
+        "source": "https://github.com/microsoft/onnxruntime/releases/download/v1.30.0/onnxruntime-osx-arm64-1.30.0.tgz",
+        "sha256": "6ebb5062a934537c352937821f9fe9718e7de1a2db1122a93dd363ffd53a7012",
+        "size": 42373116
+      },
+      "library": "onnxruntime-osx-arm64-1.30.0/lib/libonnxruntime.1.30.0.dylib",
+      "extra": [
+        "onnxruntime-osx-arm64-1.30.0/LICENSE",
+        "onnxruntime-osx-arm64-1.30.0/ThirdPartyNotices.txt"
+      ]
+    }
   ]
 }

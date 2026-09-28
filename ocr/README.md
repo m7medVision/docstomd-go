@@ -17,8 +17,8 @@ docstomd convert --ocr auto --ocr-provider local scan.pdf
 | `cmd/docstomd-ocr-local` | The engine binary: protocol session, model selection |
 | `pageimage` | Extracts a scanned page's image in pure Go (JPEG, Flate) with its placement, or renders it with `pdftoppm` (CCITT, JBIG2, vector text); reusable by adapter authors |
 | `engine` | Manifest-driven pipeline: detect → orient → recognize (DB post-processing, CTC decoding), denormal weights flushed at load |
-| `backend` | GoMLX backend selection (`go`, `auto`) |
-| `catalog` | Where models are installed and which are available |
+| `backend` | GoMLX backend selection: `go` (pure Go), `onnx` (ONNX Runtime via purego), `auto` |
+| `catalog` | Model and runtime catalog, verified installs, model selection |
 
 Models are described by a [manifest](../docs/schemas/ocr-manifest-v1.schema.json)
 next to their ONNX files.
@@ -27,3 +27,8 @@ next to their ONNX files.
 
 `go test ./...` runs offline. Tests that need real models skip unless
 `DOCSTOMD_OCR_TEST_MODELS` names a models root with the model installed.
+`DOCSTOMD_OCR_TEST_BACKEND=onnx` (with `DOCSTOMD_OCR_RUNTIMES` pointing at an
+installed runtime) runs the same goldens on ONNX Runtime.
+
+Vendored upstream code, with docstomd patches: `internal/onnxgomlx`
+(onnx-gomlx) and `internal/computeonnx` (compute-onnx); see their READMEs.

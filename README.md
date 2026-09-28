@@ -57,7 +57,7 @@ appear before or after the file.
 | `--ocr-provider P` | see [Providers](#providers) | `mistral`, `local`, `exec:<path>` or a provider name from the config file |
 | `--ocr-model ID` | provider default | Mistral model (`mistral-ocr-latest`; pin a dated version for reproducible output) or local model id |
 | `--ocr-lang L` | none | Local OCR: first installed model that reads language `L` |
-| `--ocr-backend B` | `auto` | Local OCR inference backend |
+| `--ocr-backend B` | `auto` | Local OCR inference backend: `go`, `onnx`, or `auto` (onnx when installed) |
 | `--ocr-catalog C` | none | Local OCR: extra model catalog file or `https://` URL (repeatable) |
 | `--out-dir DIR` | none | Write `<name>.md` (`<name>.json` with `--json`) per input into `DIR`; required for several inputs, which then share one OCR engine session and one page budget |
 | `--items-json` | off | PDF debugging: dump positioned text items as JSON |
@@ -365,8 +365,14 @@ download leaves no partial model.
 - **Pick a model** with `--ocr-model <id>` or a language with
   `--ocr-lang <code>`. Otherwise docstomd uses the only installed model, else
   the first installed one in catalog order.
-- **Pick a backend** with `--ocr-backend`: `go` (pure Go, the reference; a
-  few seconds per page) or `auto`.
+- **Pick a backend** with `--ocr-backend`:
+  - `go`: pure Go, no download, the reference. Slow: several seconds per page.
+  - `onnx`: native ONNX Runtime speed, about 5× faster per page. Install it with
+    `docstomd ocr install --backend onnx`, which fetches the pinned,
+    SHA-256-checked ONNX Runtime 1.30.0 release for Linux x64/arm64 or macOS
+    arm64. It is loaded at run time through purego, still without cgo.
+  - `auto` (default): `onnx` when its runtime is installed, else `go` with a
+    one-line hint.
 - **Bring your own models** with a catalog file or URL
   (`--ocr-catalog`, or `"catalogs": [...]` in `providers.json`), following
   [`docs/schemas/ocr-catalog-v1.schema.json`](docs/schemas/ocr-catalog-v1.schema.json).

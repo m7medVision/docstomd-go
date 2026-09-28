@@ -14,7 +14,7 @@ import (
 func load(t *testing.T, id string) *engine.Engine {
 	t.Helper()
 	dir := ocrtest.ModelDir(t, id)
-	sel, err := backend.New("go")
+	sel, err := backend.New(ocrtest.Backend())
 	if err != nil {
 		t.Fatal(err)
 	}

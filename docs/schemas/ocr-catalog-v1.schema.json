@@ -7,7 +7,8 @@
   "required": ["catalog", "models"],
   "properties": {
     "catalog": {"const": 1},
-    "models": {"type": "array", "items": {"$ref": "#/$defs/model"}}
+    "models": {"type": "array", "items": {"$ref": "#/$defs/model"}},
+    "runtimes": {"type": "array", "description": "Native libraries for fast backends (ONNX Runtime), pinned per platform. Read from the built-in catalog only; user catalogs cannot supply runtimes."}
   },
   "$defs": {
     "model": {

@@ -2,10 +2,9 @@
 // runs on.
 //
 //   - go: pure Go, no downloads, the reference backend (slow).
-//   - auto: the fastest backend whose runtime is installed, else go.
-//
-// Faster backends (onnx, xla) load native runtimes at run time, never
-// through cgo.
+//   - onnx: ONNX Runtime, loaded at run time through purego (no cgo);
+//     install it with `docstomd ocr install --backend onnx`.
+//   - auto: onnx when its runtime is installed, else go with a hint.
 package backend
 
 import (
@@ -14,10 +13,13 @@ import (
 
 	"github.com/gomlx/compute"
 	_ "github.com/gomlx/compute/gobackend" // registers "go"
+
+	"github.com/m7medVision/docstomd-go/ocr/catalog"
+	onnxbackend "github.com/m7medVision/docstomd-go/ocr/internal/computeonnx"
 )
 
 // Names lists the backends users can pick.
-var Names = []string{"auto", "go"}
+var Names = []string{"auto", "go", "onnx"}
 
 // ErrUnavailable means the backend cannot run on this machine.
 var ErrUnavailable = errors.New("backend unavailable")
@@ -35,12 +37,46 @@ type Selection struct {
 // New creates the named backend ("" means auto).
 func New(name string) (*Selection, error) {
 	switch name {
-	case "", "auto", "go":
-		b, err := compute.NewWithConfig("go")
-		if err != nil {
-			return nil, fmt.Errorf("%w: go: %v", ErrUnavailable, err)
+	case "go":
+		return goBackend()
+	case "onnx":
+		return onnx()
+	case "", "auto":
+		if sel, err := onnx(); err == nil {
+			return sel, nil
 		}
-		return &Selection{Backend: b, Name: "go"}, nil
+		sel, err := goBackend()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := catalog.RuntimeFor("onnx"); err == nil {
+			sel.Hint = "using the slow pure-Go backend; for native speed run: docstomd ocr install --backend onnx"
+		}
+		return sel, nil
 	}
-	return nil, fmt.Errorf("%w: unknown backend %q (auto, go)", ErrUnavailable, name)
+	return nil, fmt.Errorf("%w: unknown backend %q (auto, go, onnx)", ErrUnavailable, name)
+}
+
+func goBackend() (*Selection, error) {
+	b, err := compute.NewWithConfig("go")
+	if err != nil {
+		return nil, fmt.Errorf("%w: go: %v", ErrUnavailable, err)
+	}
+	return &Selection{Backend: b, Name: "go"}, nil
+}
+
+func onnx() (*Selection, error) {
+	rt, err := catalog.RuntimeFor("onnx")
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	if !rt.Installed() {
+		return nil, fmt.Errorf("%w: ONNX Runtime %s is not installed; run: docstomd ocr install --backend onnx", ErrUnavailable, rt.Version)
+	}
+	onnxbackend.EnableAutoInstall(false)
+	b, err := compute.NewWithConfig(onnxbackend.BackendName + ":cpu," + rt.LibraryPath())
+	if err != nil {
+		return nil, fmt.Errorf("%w: onnx: %v", ErrUnavailable, err)
+	}
+	return &Selection{Backend: b, Name: "onnx"}, nil
 }

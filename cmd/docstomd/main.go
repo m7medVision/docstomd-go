@@ -53,7 +53,7 @@ convert OCR flags (PDF):
                          default: mistral when MISTRAL_API_KEY is set, else local
   --ocr-model ID         Mistral model (default mistral-ocr-latest) or local model id
   --ocr-lang L           local: first installed model reading language L (e.g. ar)
-  --ocr-backend B        local: inference backend (auto, go)
+  --ocr-backend B        local: inference backend (auto, go, onnx)
   --ocr-catalog C        local: extra model catalog file or https URL (repeatable)
   Mistral reads MISTRAL_API_KEY from the environment.
 
@@ -114,7 +114,7 @@ func runConvert(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	ocrMaxPagesRun := fs.Int("ocr-max-pages-run", 0, "maximum pages sent to OCR across all inputs (0 = unlimited)")
 	ocrModel := fs.String("ocr-model", "", "OCR model: the Mistral model id (default mistral-ocr-latest), or a local model id")
 	ocrLang := fs.String("ocr-lang", "", "local OCR: pick the first installed model that reads this language (e.g. en, ar)")
-	ocrBackend := fs.String("ocr-backend", "", "local OCR inference backend: auto, go (default auto)")
+	ocrBackend := fs.String("ocr-backend", "", "local OCR inference backend: auto, go, onnx (default auto: onnx when installed, else go)")
 	var ocrCatalogs stringList
 	fs.Var(&ocrCatalogs, "ocr-catalog", "local OCR: extra model catalog (file or https URL); repeatable")
 	ocrProvider := fs.String("ocr-provider", "", "OCR provider: mistral, local, exec:<path>, or a name from the config file (default: mistral when MISTRAL_API_KEY is set, else local)")

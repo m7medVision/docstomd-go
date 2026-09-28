@@ -22,6 +22,7 @@ const ocrUsage = `usage: docstomd ocr <command> [flags]
 commands (run by the local engine, docstomd-ocr-local):
   list [--json]                         catalog models and what is installed
   install [--accept-license L] <id>...  download and verify models
+  install --backend onnx                install ONNX Runtime for native speed
   check-catalog                         verify catalog pins against Hugging Face
 
 flags:

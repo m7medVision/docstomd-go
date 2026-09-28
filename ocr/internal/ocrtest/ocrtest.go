@@ -16,6 +16,18 @@ import (
 // tests that need real models. Tests skip when it is unset or lacks the model.
 const EnvModels = "DOCSTOMD_OCR_TEST_MODELS"
 
+// EnvBackend picks the backend model tests run on (default go, the
+// reference); fast backends must reproduce the same goldens.
+const EnvBackend = "DOCSTOMD_OCR_TEST_BACKEND"
+
+// Backend is the backend model tests run on.
+func Backend() string {
+	if b := os.Getenv(EnvBackend); b != "" {
+		return b
+	}
+	return "go"
+}
+
 // ModelDir returns the directory of an installed model or skips the test.
 func ModelDir(t testing.TB, id string) string {
 	t.Helper()

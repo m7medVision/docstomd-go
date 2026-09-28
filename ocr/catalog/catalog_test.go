@@ -312,3 +312,27 @@ func TestSelect(t *testing.T) {
 		t.Errorf("--model nope: %v", err)
 	}
 }
+
+func TestBuiltinRuntimesArePinned(t *testing.T) {
+	c := Load()
+	if len(c.Runtimes) == 0 {
+		t.Fatal("no runtimes")
+	}
+	for _, r := range c.Runtimes {
+		if r.Backend != "onnx" || !hexSHA256.MatchString(r.Archive.SHA256) || r.Archive.Size <= 0 || !strings.HasPrefix(r.Archive.Source, "https://github.com/microsoft/onnxruntime/releases/download/") {
+			t.Errorf("runtime %s %s: bad pin %+v", r.Name, r.Platform, r.Archive)
+		}
+		if !slicesContains(Permissive, r.License) {
+			t.Errorf("runtime %s: licence %s", r.Platform, r.License)
+		}
+	}
+}
+
+func slicesContains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}

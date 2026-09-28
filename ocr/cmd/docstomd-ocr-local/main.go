@@ -88,6 +88,7 @@ const usage = `usage:
   docstomd-ocr-local [serve] [flags]      speak the docstomd OCR protocol on stdin/stdout
   docstomd-ocr-local list [--json]        list catalog models and what is installed
   docstomd-ocr-local install <id>...      download and verify models
+  docstomd-ocr-local install --backend onnx   install the ONNX Runtime library (native speed)
   docstomd-ocr-local check-catalog        verify catalog pins against Hugging Face
 
 serve flags:

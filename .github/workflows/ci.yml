@@ -82,5 +82,35 @@ jobs:
           path: .ocr-models
           key: ocr-models-${{ hashFiles('ocr/catalog/builtin.json') }}
       - if: steps.models.outputs.cache-hit != 'true'
-        run: go run ./cmd/docstomd-ocr-local install --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile
+        run: go run ./cmd/docstomd-ocr-local install --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile pp-ocrv5-arabic-mobile
+      - run: go test ./...
+
+  # The onnx backend must reproduce the go goldens. ONNX Runtime and the models
+  # are downloaded once per catalog change and cached.
+  ocr-onnx:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ocr
+    env:
+      CGO_ENABLED: "0"
+      GOWORK: "off"
+      DOCSTOMD_OCR_TEST_MODELS: ${{ github.workspace }}/.ocr-models
+      DOCSTOMD_OCR_RUNTIMES: ${{ github.workspace }}/.ocr-runtimes
+      DOCSTOMD_OCR_TEST_BACKEND: onnx
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ocr/go.mod
+          cache-dependency-path: ocr/go.sum
+      - id: cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .ocr-models
+            .ocr-runtimes
+          key: ocr-onnx-${{ hashFiles('ocr/catalog/builtin.json') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: go run ./cmd/docstomd-ocr-local install --backend onnx --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile pp-ocrv5-arabic-mobile
       - run: go test ./...
