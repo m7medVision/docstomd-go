@@ -59,8 +59,9 @@ jobs:
       - run: go test ./...
       - run: go build ./...
 
-  # Model goldens on the pure-Go reference backend. Models are downloaded once
-  # per catalog change and cached; the test run itself is offline.
+  # A quick check that the pure-Go reference backend still reads the
+  # goldens, on the smallest model. Every model runs on onnx below; the
+  # goldens are shared, so both backends are held to the same output.
   ocr-models:
     runs-on: ubuntu-latest
     defaults:
@@ -70,6 +71,7 @@ jobs:
       CGO_ENABLED: "0"
       GOWORK: "off"
       DOCSTOMD_OCR_TEST_MODELS: ${{ github.workspace }}/.ocr-models
+      DOCSTOMD_OCR_TEST_BACKEND: go
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -80,15 +82,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .ocr-models
-          key: ocr-models-${{ hashFiles('ocr/catalog/builtin.json') }}
+          key: ocr-models-go-${{ hashFiles('ocr/catalog/builtin.json') }}
       - if: steps.models.outputs.cache-hit != 'true'
-        run: go run ./cmd/docstomd-ocr-local install --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile pp-ocrv5-arabic-mobile doctr-db-mobilenet-crnn-vgg16 doctr-db-mobilenet-parseq doctr-fast-base-crnn-vgg16 doctr-fast-base-parseq
-      # Every model runs on the pure-Go reference backend: minutes, not the
-      # default 10-minute test budget.
-      - run: go test -timeout 60m ./...
+        run: go run ./cmd/docstomd-ocr-local install --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile
+      - run: go test -timeout 20m ./...
 
-  # The onnx backend must reproduce the go goldens. ONNX Runtime and the models
-  # are downloaded once per catalog change and cached.
+  # Every model's goldens, on ONNX Runtime (models the runtime cannot build,
+  # such as PARSeq, fall back to go inside the engine). ONNX Runtime and the
+  # models are downloaded once per catalog change and cached.
   ocr-onnx:
     runs-on: ubuntu-latest
     defaults:
@@ -115,4 +116,4 @@ jobs:
           key: ocr-onnx-${{ hashFiles('ocr/catalog/builtin.json') }}
       - if: steps.cache.outputs.cache-hit != 'true'
         run: go run ./cmd/docstomd-ocr-local install --backend onnx --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile pp-ocrv5-arabic-mobile doctr-db-mobilenet-crnn-vgg16 doctr-db-mobilenet-parseq doctr-fast-base-crnn-vgg16 doctr-fast-base-parseq
-      - run: go test ./...
+      - run: go test -timeout 30m ./...
