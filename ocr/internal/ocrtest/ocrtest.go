@@ -118,3 +118,36 @@ func dump(lines []GoldenLine) string {
 	}
 	return sb.String()
 }
+
+// CompareWords checks word-level recognition against a fixture's text file
+// (testdata/ocr/<name>.txt): the multiset of recognized words equals the
+// text's, ignoring bare punctuation tokens such as list dashes, whose
+// detection varies between word-level detectors.
+func CompareWords(t testing.TB, got []GoldenLine, textFixture string) {
+	t.Helper()
+	count := func(words []string) map[string]int {
+		m := map[string]int{}
+		for _, w := range words {
+			if strings.ContainsFunc(w, func(r rune) bool { return r != '-' && r != '•' }) {
+				m[w]++
+			}
+		}
+		return m
+	}
+	var have []string
+	for _, l := range got {
+		have = append(have, strings.Fields(l.Text)...)
+	}
+	want := strings.Fields(string(Fixture(t, textFixture)))
+	h, w := count(have), count(want)
+	for word, n := range w {
+		if h[word] != n {
+			t.Errorf("word %q recognized %d times, want %d", word, h[word], n)
+		}
+	}
+	for word, n := range h {
+		if w[word] == 0 {
+			t.Errorf("unexpected word %q (%d times)", word, n)
+		}
+	}
+}

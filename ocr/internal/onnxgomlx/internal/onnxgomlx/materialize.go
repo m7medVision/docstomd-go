@@ -2,7 +2,10 @@ package onnxgomlx
 
 import (
 	"fmt"
+	"github.com/gomlx/compute"
+	_ "github.com/gomlx/compute/gobackend"
 	"strings"
+	"sync"
 
 	"github.com/gomlx/compute-onnx/support/protos"
 	"github.com/gomlx/compute/dtypes/bfloat16"
@@ -194,10 +197,17 @@ func (m *Model) materializeConstantExpression(nodeOutputName string, convertedOu
 			nodeOutputName, nonConstInputs, strings.Join(varDesc, ", "), strings.Join(opsDesc, ", "))
 	}
 
-	// Evaluate constant sub-expression in a newly created sub-
-	backend := node.Graph().Backend()
+	// Evaluate constant sub-expression in a newly created sub-graph.
+	// docstomd patch: on the pure-Go backend, whatever the model runs on.
+	// These are small shape and index computations; evaluating them on a
+	// native runtime (ONNX Runtime) costs a session each and trips its
+	// stricter shape checks.
+	backend, err := constantBackend()
+	if err != nil {
+		backend = node.Graph().Backend()
+	}
 	var result *tensors.Tensor
-	err := exceptions.TryCatch[error](func() {
+	err = exceptions.TryCatch[error](func() {
 		result = MustExecOnce(backend, func(g *Graph) *Node {
 			constConvertedOutputs := make(map[string]*Node)
 			m.recursiveMaterializeConstantExpression(nodeOutputName, g, constConvertedOutputs, convertedOutputs)
@@ -207,7 +217,13 @@ func (m *Model) materializeConstantExpression(nodeOutputName string, convertedOu
 	if err != nil {
 		return nil, errors.WithMessage(err, "while evaluating constant sub-expression")
 	}
-	return result, nil
+	// A host-only copy, so the constant can feed graphs on any backend.
+	local, err := tensors.FromAnyValue(result.Value())
+	result.FinalizeAll()
+	if err != nil {
+		return nil, errors.WithMessage(err, "while copying a constant sub-expression")
+	}
+	return local, nil
 }
 
 // recursiveMaterializeConstantExpression creates a GoMLX graph with the constant expressions in constConvertedOutputs.
@@ -262,4 +278,19 @@ func (m *Model) recursiveMaterializeConstantExpression(nodeOutputName string, g 
 
 	// And now convert the node itself.
 	m.convertNode(nil, g, onnxNode, constConvertedOutputs)
+}
+
+var (
+	constOnce    sync.Once
+	constBackend compute.Backend
+	constErr     error
+)
+
+// constantBackend (docstomd patch) is the shared pure-Go backend used to
+// evaluate constant sub-expressions.
+func constantBackend() (compute.Backend, error) {
+	constOnce.Do(func() {
+		constBackend, constErr = compute.NewWithConfig("go")
+	})
+	return constBackend, constErr
 }

@@ -55,7 +55,7 @@ func TestCTCDecode(t *testing.T) {
 	for _, s := range steps {
 		flat = append(flat, s...)
 	}
-	text, conf := ctcDecode(flat, len(steps), 4, chars, 0)
+	text, conf := ctcDecode(flat, len(steps), 4, chars, 0, "")
 	if text != "aa b" {
 		t.Errorf("text = %q", text)
 	}
@@ -157,5 +157,52 @@ func TestManifestValidate(t *testing.T) {
 		if err := m.Validate(); err == nil {
 			t.Errorf("case %d: invalid manifest accepted", i)
 		}
+	}
+}
+
+func TestAttentionDecode(t *testing.T) {
+	chars := []string{"a", "b"}
+	// classes: a, b, eos
+	logits := []float32{
+		5, 0, 0, // a
+		0, 5, 0, // b
+		0, 0, 5, // eos
+		5, 0, 0, // after eos: ignored
+	}
+	text, conf := decode(logits, 4, 3, chars, Decoder{Type: "attention", EOS: -1, Softmax: true})
+	if text != "ab" || conf < 0.98 || conf > 1 {
+		t.Errorf("attention = %q %v", text, conf)
+	}
+}
+
+func TestCTCBlankLastAndMinConfidence(t *testing.T) {
+	chars := []string{"a", "b"}
+	// classes: a, b, blank(last)
+	probs := []float32{
+		0.9, 0.05, 0.05,
+		0.1, 0.1, 0.8,
+		0.2, 0.6, 0.2,
+	}
+	text, conf := decode(probs, 3, 3, chars, Decoder{Type: "ctc", Blank: -1, Confidence: "min"})
+	if text != "ab" || math.Abs(conf-0.6) > 1e-6 {
+		t.Errorf("ctc = %q %v", text, conf)
+	}
+}
+
+func TestStraightBoxes(t *testing.T) {
+	const w, h = 60, 30
+	prob := make([]float32, w*h)
+	for y := 10; y < 14; y++ {
+		for x := 10; x < 40; x++ {
+			prob[y*w+x] = 0.9
+		}
+	}
+	boxes := dbBoxes(prob, w, w, h, PostProcess{Type: "db", Thresh: 0.3, BoxThresh: 0.1, UnclipRatio: 1.5, MinSize: 2, Boxes: "straight"}, 1, 1, w, h)
+	if len(boxes) != 1 {
+		t.Fatalf("boxes = %v", boxes)
+	}
+	q := boxes[0]
+	if q[0].y != q[1].y || q[0].x != q[3].x {
+		t.Errorf("not axis aligned: %v", q)
 	}
 }

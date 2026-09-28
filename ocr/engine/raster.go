@@ -129,6 +129,11 @@ func (r *raster) rotate90ccw() *raster {
 // dstW×dstH plane per channel, applying the input's channel order, scale,
 // mean and std.
 func (in Input) normalize(dst []float32, r *raster, dstW, dstH int) {
+	in.normalizeAt(dst, r, dstW, dstH, 0, 0)
+}
+
+// normalizeAt is normalize with r placed at (ox, oy).
+func (in Input) normalizeAt(dst []float32, r *raster, dstW, dstH, ox, oy int) {
 	order := [3]int{2, 1, 0} // BGR
 	if in.Color == "rgb" {
 		order = [3]int{0, 1, 2}
@@ -138,9 +143,9 @@ func (in Input) normalize(dst []float32, r *raster, dstW, dstH int) {
 		src := order[c]
 		scale := in.Scale / in.Std[c]
 		shift := in.Mean[c] / in.Std[c]
-		for y := range min(r.h, dstH) {
-			row := dst[c*plane+y*dstW:]
-			for x := range min(r.w, dstW) {
+		for y := range min(r.h, dstH-oy) {
+			row := dst[c*plane+(y+oy)*dstW+ox:]
+			for x := range min(r.w, dstW-ox) {
 				row[x] = float32(float64(r.pix[(y*r.w+x)*3+src])*scale - shift)
 			}
 		}

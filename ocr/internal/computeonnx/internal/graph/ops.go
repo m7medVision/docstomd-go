@@ -38,6 +38,7 @@ func init() {
 	registerOp(compute.OpTypeMul)
 	registerOp(compute.OpTypeDiv)
 	registerOp(compute.OpTypeMax)
+	registerOp(compute.OpTypeClamp) // docstomd patch
 	registerOp(compute.OpTypeMin)
 	registerOp(compute.OpTypeRem)
 	registerOp(compute.OpTypePow)

@@ -88,6 +88,18 @@ func (e *Engine) Denormals() int {
 	return count
 }
 
+// FellBack lists the models that moved to the pure-Go backend because the
+// selected backend cannot build their graphs.
+func (e *Engine) FellBack() []string {
+	var names []string
+	for _, n := range []*net{e.det, e.cls, e.rec} {
+		if n != nil && n.fellBack {
+			names = append(names, n.name)
+		}
+	}
+	return names
+}
+
 // Flushed counts the subnormal weights zeroed at load.
 func (e *Engine) Flushed() int {
 	count := 0
@@ -167,6 +179,8 @@ func (e *Engine) detect(r *raster) ([]quad, error) {
 	}
 	ratio := 1.0
 	switch d.LimitType {
+	case "fit":
+		ratio = math.Min(float64(d.LimitSide)/float64(r.w), float64(d.LimitSide)/float64(r.h))
 	case "min":
 		if s := min(r.w, r.h); s < d.LimitSide {
 			ratio = float64(d.LimitSide) / float64(s)
@@ -176,8 +190,12 @@ func (e *Engine) detect(r *raster) ([]quad, error) {
 			ratio = float64(d.LimitSide) / float64(s)
 		}
 	}
-	rw := max(multiple, int(math.Round(float64(r.w)*ratio/float64(multiple)))*multiple)
-	rh := max(multiple, int(math.Round(float64(r.h)*ratio/float64(multiple)))*multiple)
+	round := math.Round
+	if d.LimitType == "fit" {
+		round = math.Floor // stay inside the square
+	}
+	rw := max(multiple, int(round(float64(r.w)*ratio/float64(multiple)))*multiple)
+	rh := max(multiple, int(round(float64(r.h)*ratio/float64(multiple)))*multiple)
 	bw, bh := rw, rh
 	best := math.MaxInt
 	for _, b := range d.Buckets {
@@ -185,9 +203,17 @@ func (e *Engine) detect(r *raster) ([]quad, error) {
 			bh, bw, best = b[0], b[1], b[0]*b[1]
 		}
 	}
+	padValue := uint8(255)
+	if d.PadValue != nil {
+		padValue = uint8(*d.PadValue)
+	}
+	ox, oy := 0, 0
+	if d.Pad == "center" {
+		ox, oy = (bw-rw+1)/2, (bh-rh+1)/2
+	}
 	input := make([]float32, 3*bw*bh)
-	d.Input.fill(input, 255, bw, bh)
-	d.Input.normalize(input, r.resize(rw, rh), bw, bh)
+	d.Input.fill(input, padValue, bw, bh)
+	d.Input.normalizeAt(input, r.resize(rw, rh), bw, bh, ox, oy)
 	prob, dims, err := e.det.run(input, 1, 3, bh, bw)
 	if err != nil {
 		return nil, err
@@ -195,7 +221,17 @@ func (e *Engine) detect(r *raster) ([]quad, error) {
 	if len(dims) != 4 || dims[2] != bh || dims[3] != bw {
 		return nil, fmt.Errorf("detector output %v, want [1 1 %d %d]", dims, bh, bw)
 	}
-	return dbBoxes(prob, bw, rw, rh, d.PostProcess, float64(r.w)/float64(rw), float64(r.h)/float64(rh), r.w, r.h), nil
+	// The image region of the map, activated.
+	valid := make([]float32, rw*rh)
+	for y := range rh {
+		copy(valid[y*rw:(y+1)*rw], prob[(y+oy)*bw+ox:(y+oy)*bw+ox+rw])
+	}
+	if d.PostProcess.Activation == "sigmoid" {
+		for i, v := range valid {
+			valid[i] = float32(1 / (1 + math.Exp(-float64(v))))
+		}
+	}
+	return dbBoxes(valid, rw, rw, rh, d.PostProcess, float64(r.w)/float64(rw), float64(r.h)/float64(rh), r.w, r.h), nil
 }
 
 // orient turns upside-down crops upright.
@@ -263,12 +299,22 @@ func (e *Engine) read(crops []*raster) ([]string, []float64, error) {
 		for _, i := range idx {
 			maxRatio = math.Max(maxRatio, ratio(i))
 		}
-		width := e.recWidth(int(math.Ceil(float64(h) * maxRatio)))
+		width := rc.Width
+		if width == 0 {
+			width = e.recWidth(int(math.Ceil(float64(h) * maxRatio)))
+		}
 		plane := 3 * width * h
 		input := make([]float32, n*plane)
 		for k, i := range idx {
-			w := min(width, max(1, int(math.Ceil(float64(h)*ratio(i)))))
-			rc.Input.normalize(input[k*plane:], crops[i].resize(w, h), width, h)
+			w, ch := min(width, max(1, int(math.Ceil(float64(h)*ratio(i))))), h
+			if rc.Width > 0 && ratio(i) > float64(width)/float64(h) {
+				// Wider than the fixed input: fit the width, pad below.
+				w, ch = width, max(1, int(float64(width)/ratio(i)))
+			}
+			if rc.PadValue != nil {
+				rc.Input.fill(input[k*plane:(k+1)*plane], uint8(*rc.PadValue), width, h)
+			}
+			rc.Input.normalize(input[k*plane:], crops[i].resize(w, ch), width, h)
 		}
 		out, dims, err := e.rec.run(input, n, 3, h, width)
 		if err != nil {
@@ -278,11 +324,11 @@ func (e *Engine) read(crops []*raster) ([]string, []float64, error) {
 			return nil, nil, fmt.Errorf("recognizer output %v, want [%d steps classes]", dims, n)
 		}
 		steps, classes := dims[1], dims[2]
-		if classes != e.classes {
+		if classes < e.classes || (rc.Decoder.Type == "ctc" && classes != e.classes) {
 			return nil, nil, errors.New("recognizer has " + fmt.Sprint(classes) + " classes but the character list gives " + fmt.Sprint(e.classes))
 		}
 		for k, i := range idx {
-			texts[i], scores[i] = ctcDecode(out[k*steps*classes:(k+1)*steps*classes], steps, classes, e.chars, rc.Decoder.Blank)
+			texts[i], scores[i] = decode(out[k*steps*classes:(k+1)*steps*classes], steps, classes, e.chars, rc.Decoder)
 		}
 	}
 	return texts, scores, nil

@@ -80,7 +80,13 @@ func dbBoxes(prob []float32, stride, vw, vh int, pp PostProcess, sx, sy float64,
 		if len(points) < 4 {
 			continue
 		}
-		rect, short := minAreaRect(convexHull(points))
+		var rect quad
+		var short float64
+		if pp.Boxes == "straight" {
+			rect, short = boundingRect(points)
+		} else {
+			rect, short = minAreaRect(convexHull(points))
+		}
 		if short < minSize {
 			continue
 		}
@@ -102,6 +108,18 @@ func dbBoxes(prob []float32, stride, vw, vh int, pp PostProcess, sx, sy float64,
 	}
 	sortBoxes(boxes)
 	return boxes
+}
+
+// boundingRect is the axis-aligned box of pixel centres, widened by half a
+// pixel on every side, plus its shorter side.
+func boundingRect(points []pt) (quad, float64) {
+	x0, y0, x1, y1 := points[0].x, points[0].y, points[0].x, points[0].y
+	for _, p := range points[1:] {
+		x0, y0 = math.Min(x0, p.x), math.Min(y0, p.y)
+		x1, y1 = math.Max(x1, p.x), math.Max(y1, p.y)
+	}
+	x0, y0, x1, y1 = x0-0.5, y0-0.5, x1+0.5, y1+0.5
+	return quad{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}, math.Min(x1-x0, y1-y0)
 }
 
 // convexHull is Andrew's monotone chain.

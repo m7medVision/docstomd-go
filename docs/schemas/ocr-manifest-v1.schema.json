@@ -4,80 +4,318 @@
   "title": "docstomd-ocr-local model manifest v1",
   "description": "manifest.json in a model directory: how docstomd-ocr-local runs the model's ONNX files. Paths are relative to the model directory. Versioned independently of the OCR protocol and the catalog format.",
   "type": "object",
-  "required": ["schema", "id", "detector", "recognizer"],
+  "required": [
+    "schema",
+    "id",
+    "detector",
+    "recognizer"
+  ],
   "properties": {
-    "schema": {"const": 1},
-    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
-    "family": {"type": "string"},
-    "languages": {"type": "array", "items": {"type": "string"}},
-    "license": {"type": "string", "description": "SPDX identifier of the weights' licence."},
-    "output_order": {"enum": ["logical", "visual"], "default": "logical", "description": "visual: the recognizer emits right-to-left text in display order; docstomd reorders it with the Unicode bidi algorithm."},
+    "schema": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "family": {
+      "type": "string"
+    },
+    "languages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "license": {
+      "type": "string",
+      "description": "SPDX identifier of the weights' licence."
+    },
+    "output_order": {
+      "enum": [
+        "logical",
+        "visual"
+      ],
+      "default": "logical",
+      "description": "visual: the recognizer emits right-to-left text in display order; docstomd reorders it with the Unicode bidi algorithm."
+    },
     "detector": {
       "type": "object",
-      "required": ["model", "input", "limit_side", "postprocess"],
+      "required": [
+        "model",
+        "input",
+        "limit_side",
+        "postprocess"
+      ],
       "properties": {
-        "model": {"type": "string"},
-        "input": {"$ref": "#/$defs/input"},
-        "limit_side": {"type": "integer", "minimum": 1},
-        "limit_type": {"enum": ["max", "min"], "default": "max", "description": "max: scale the longer side down to limit_side; min: scale the shorter side up to it."},
-        "multiple": {"type": "integer", "minimum": 1, "default": 32},
-        "buckets": {"type": "array", "items": {"$ref": "#/$defs/size"}, "description": "Input sizes [height, width] compiled once per session; inputs are padded to the smallest bucket that holds them."},
+        "model": {
+          "type": "string"
+        },
+        "input": {
+          "$ref": "#/$defs/input"
+        },
+        "limit_side": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "limit_type": {
+          "enum": [
+            "max",
+            "min",
+            "fit"
+          ],
+          "default": "max",
+          "description": "max: scale the longer side down to limit_side; min: scale the shorter side up to it; fit: scale up or down to fit a limit_side square, keeping the aspect ratio."
+        },
+        "multiple": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 32
+        },
+        "buckets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/size"
+          },
+          "description": "Input sizes [height, width] compiled once per session; inputs are padded to the smallest bucket that holds them."
+        },
         "postprocess": {
           "type": "object",
-          "required": ["type", "thresh", "box_thresh", "unclip_ratio"],
+          "required": [
+            "type",
+            "thresh",
+            "box_thresh",
+            "unclip_ratio"
+          ],
           "properties": {
-            "type": {"const": "db"},
-            "thresh": {"type": "number"},
-            "box_thresh": {"type": "number"},
-            "unclip_ratio": {"type": "number"},
-            "max_candidates": {"type": "integer", "minimum": 1, "default": 1000},
-            "min_size": {"type": "number", "default": 3}
+            "type": {
+              "const": "db"
+            },
+            "thresh": {
+              "type": "number"
+            },
+            "box_thresh": {
+              "type": "number"
+            },
+            "unclip_ratio": {
+              "type": "number"
+            },
+            "max_candidates": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1000
+            },
+            "min_size": {
+              "type": "number",
+              "default": 3
+            },
+            "activation": {
+              "enum": [
+                "",
+                "sigmoid"
+              ],
+              "description": "sigmoid when the detector outputs logits."
+            },
+            "boxes": {
+              "enum": [
+                "rotated",
+                "straight"
+              ],
+              "default": "rotated",
+              "description": "rotated: minimum-area rectangles; straight: axis-aligned boxes."
+            }
           }
+        },
+        "pad": {
+          "enum": [
+            "end",
+            "center"
+          ],
+          "default": "end",
+          "description": "Where the image sits in its bucket."
+        },
+        "pad_value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "default": 255,
+          "description": "Gray level of the detector padding."
         }
       }
     },
     "classifier": {
       "type": "object",
       "description": "Optional text-line orientation classifier.",
-      "required": ["model", "input", "height", "width", "angles", "threshold"],
+      "required": [
+        "model",
+        "input",
+        "height",
+        "width",
+        "angles",
+        "threshold"
+      ],
       "properties": {
-        "model": {"type": "string"},
-        "input": {"$ref": "#/$defs/input"},
-        "height": {"type": "integer", "minimum": 1},
-        "width": {"type": "integer", "minimum": 1},
-        "angles": {"type": "array", "items": {"enum": [0, 180]}, "minItems": 1},
-        "threshold": {"type": "number"},
-        "batches": {"$ref": "#/$defs/batches"}
+        "model": {
+          "type": "string"
+        },
+        "input": {
+          "$ref": "#/$defs/input"
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "angles": {
+          "type": "array",
+          "items": {
+            "enum": [
+              0,
+              180
+            ]
+          },
+          "minItems": 1
+        },
+        "threshold": {
+          "type": "number"
+        },
+        "batches": {
+          "$ref": "#/$defs/batches"
+        }
       }
     },
     "recognizer": {
       "type": "object",
-      "required": ["model", "input", "height", "charset", "decoder"],
+      "required": [
+        "model",
+        "input",
+        "height",
+        "charset",
+        "decoder"
+      ],
       "properties": {
-        "model": {"type": "string"},
-        "input": {"$ref": "#/$defs/input"},
-        "height": {"type": "integer", "minimum": 1},
-        "min_width": {"type": "integer", "minimum": 1},
-        "max_width": {"type": "integer", "minimum": 1},
-        "widths": {"type": "array", "items": {"type": "integer", "minimum": 1}, "description": "Ascending width buckets compiled once per session."},
-        "batches": {"$ref": "#/$defs/batches"},
+        "model": {
+          "type": "string"
+        },
+        "input": {
+          "$ref": "#/$defs/input"
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "min_width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "widths": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": "Ascending width buckets compiled once per session."
+        },
+        "batches": {
+          "$ref": "#/$defs/batches"
+        },
         "charset": {
           "type": "object",
-          "oneOf": [{"required": ["yaml"]}, {"required": ["file"]}],
+          "oneOf": [
+            {
+              "required": [
+                "yaml"
+              ]
+            },
+            {
+              "required": [
+                "file"
+              ]
+            },
+            {
+              "required": [
+                "json"
+              ]
+            }
+          ],
           "properties": {
-            "yaml": {"type": "string", "description": "YAML file holding the list, e.g. PaddleOCR's inference.yml."},
-            "key": {"type": "string", "default": "character_dict"},
-            "file": {"type": "string", "description": "Text file with one character per line."}
+            "yaml": {
+              "type": "string",
+              "description": "YAML file holding the list, e.g. PaddleOCR's inference.yml."
+            },
+            "key": {
+              "type": "string",
+              "description": "List key in the YAML file (default character_dict) or string key in the JSON file (default vocab)."
+            },
+            "file": {
+              "type": "string",
+              "description": "Text file with one character per line."
+            },
+            "json": {
+              "type": "string",
+              "description": "JSON file holding the characters as one string under key (default vocab), e.g. docTR's config.json."
+            }
           }
         },
         "decoder": {
           "type": "object",
-          "required": ["type"],
+          "required": [
+            "type"
+          ],
           "properties": {
-            "type": {"const": "ctc"},
-            "blank": {"type": "integer", "minimum": 0, "default": 0},
-            "append_space": {"type": "boolean", "default": false}
+            "type": {
+              "enum": [
+                "ctc",
+                "attention"
+              ],
+              "description": "ctc: per-step classes, repeats merged, blanks dropped. attention: one class per position until the end token."
+            },
+            "blank": {
+              "type": "integer",
+              "minimum": -1,
+              "default": 0,
+              "description": "CTC blank class; -1 means the class after the characters."
+            },
+            "append_space": {
+              "type": "boolean",
+              "default": false
+            },
+            "eos": {
+              "type": "integer",
+              "minimum": -1,
+              "description": "Attention end-of-sequence class; -1 means the class after the characters."
+            },
+            "softmax": {
+              "type": "boolean",
+              "default": false,
+              "description": "The recognizer outputs logits."
+            },
+            "confidence": {
+              "enum": [
+                "mean",
+                "min"
+              ],
+              "default": "mean"
+            }
           }
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Fixed input width: lines keep their aspect ratio (fitted to the width when wider) and are padded."
+        },
+        "pad_value": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Gray level of the recognizer padding; unset pads with 0 after normalization."
         }
       }
     }
@@ -86,15 +324,62 @@
     "input": {
       "type": "object",
       "description": "value → value*scale → (value-mean)/std per channel, NCHW.",
-      "required": ["scale", "mean", "std"],
+      "required": [
+        "scale",
+        "mean",
+        "std"
+      ],
       "properties": {
-        "color": {"enum": ["bgr", "rgb"], "default": "bgr"},
-        "scale": {"type": "number"},
-        "mean": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
-        "std": {"type": "array", "items": {"type": "number", "not": {"const": 0}}, "minItems": 3, "maxItems": 3}
+        "color": {
+          "enum": [
+            "bgr",
+            "rgb"
+          ],
+          "default": "bgr"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "mean": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "std": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "not": {
+              "const": 0
+            }
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
       }
     },
-    "batches": {"type": "array", "items": {"type": "integer", "minimum": 1}, "default": [1], "description": "Batch-size buckets compiled once per session; lines are grouped greedily into the largest bucket that fits."},
-    "size": {"type": "array", "items": {"type": "integer", "minimum": 1}, "minItems": 2, "maxItems": 2}
+    "batches": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "default": [
+        1
+      ],
+      "description": "Batch-size buckets compiled once per session; lines are grouped greedily into the largest bucket that fits."
+    },
+    "size": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "minItems": 2,
+      "maxItems": 2
+    }
   }
 }

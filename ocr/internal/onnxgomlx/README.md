@@ -18,3 +18,6 @@ pinned upstream version.
 | Opset 1–9 `Slice` (starts/ends/axes attributes) | PP-LCNet text-line orientation classifier (opset 7) |
 | `BatchNormalization` as `x*k + (bias - mean*k)` | Constants fold once; faster on every backend |
 | Integer-scale nearest `Resize` as reshape + broadcast | Faster on every backend |
+| Linear `Resize` of NCHW spatial axes as two constant-weight matrix products | docTR detectors; no `Gather`, which ONNX Runtime through compute-onnx cannot express |
+| `MaxPool` with explicit unit `dilations` | docTR CRNN |
+| Constant sub-expressions evaluated on the pure-Go backend, returned as host tensors | docTR PARSeq shape computations; avoids a runtime session per constant |

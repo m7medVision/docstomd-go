@@ -53,9 +53,15 @@ type Detector struct {
 	Model string `json:"model"`
 	Input Input  `json:"input"`
 	// LimitSide bounds the input: its longer side (limit_type "max") or its
-	// shorter side ("min") is scaled to LimitSide.
+	// shorter side ("min") is scaled to LimitSide; "fit" scales the image,
+	// up or down, to fit a LimitSide square keeping its aspect ratio.
 	LimitSide int    `json:"limit_side"`
 	LimitType string `json:"limit_type,omitempty"`
+	// Pad places the image at the top-left of its bucket ("end", default)
+	// or centres it ("center"); PadValue is the padding gray level (default
+	// 255, white).
+	Pad      string `json:"pad,omitempty"`
+	PadValue *int   `json:"pad_value,omitempty"`
 	// Multiple rounds input sides (32 for DB-style detectors).
 	Multiple int `json:"multiple,omitempty"`
 	// Buckets are input sizes [height, width] compiled once per session;
@@ -73,6 +79,12 @@ type PostProcess struct {
 	UnclipRatio   float64 `json:"unclip_ratio"`
 	MaxCandidates int     `json:"max_candidates,omitempty"`
 	MinSize       float64 `json:"min_size,omitempty"`
+	// Activation is applied to the raw output first: "" (already a
+	// probability map) or "sigmoid" (logits).
+	Activation string `json:"activation,omitempty"`
+	// Boxes are "rotated" (minimum-area rectangles, default) or "straight"
+	// (axis-aligned).
+	Boxes string `json:"boxes,omitempty"`
 }
 
 // Classifier decides whether a text line is upside down.
@@ -94,10 +106,17 @@ type Classifier struct {
 type Recognizer struct {
 	Model string `json:"model"`
 	Input Input  `json:"input"`
-	// Height is the fixed input height; widths follow the aspect ratio.
-	Height   int `json:"height"`
-	MinWidth int `json:"min_width,omitempty"`
-	MaxWidth int `json:"max_width,omitempty"`
+	// Height is the fixed input height; widths follow the aspect ratio
+	// unless Width fixes them.
+	Height int `json:"height"`
+	// Width, when set, fixes the input width: lines are resized keeping
+	// their aspect ratio (squeezed if wider) and padded at the end.
+	Width int `json:"width,omitempty"`
+	// PadValue is the gray level of padding in pixel space; unset pads with
+	// 0 after normalization.
+	PadValue *int `json:"pad_value,omitempty"`
+	MinWidth int  `json:"min_width,omitempty"`
+	MaxWidth int  `json:"max_width,omitempty"`
 	// Widths are ascending width buckets compiled once per session; wider
 	// lines use the next multiple of the first bucket.
 	Widths []int `json:"widths,omitempty"`
@@ -116,14 +135,27 @@ type Charset struct {
 	Key  string `json:"key,omitempty"`
 	// File reads one character per line.
 	File string `json:"file,omitempty"`
+	// JSON reads a string under Key from a JSON object (for example docTR's
+	// config.json, key "vocab"); each character is one class.
+	JSON string `json:"json,omitempty"`
 }
 
 // Decoder turns recognizer outputs into text.
 type Decoder struct {
-	// Type is "ctc".
+	// Type is "ctc" (per-step classes, repeats merged, blanks dropped) or
+	// "attention" (one class per output position until the end token).
 	Type string `json:"type"`
-	// Blank is the CTC blank class index; characters follow it in order.
+	// Blank is the CTC blank class index; characters take the other
+	// indices in order. -1 means the class after the characters.
 	Blank int `json:"blank"`
+	// EOS is the attention decoder's end-of-sequence class; -1 means the
+	// class after the characters.
+	EOS int `json:"eos,omitempty"`
+	// Softmax turns raw logits into probabilities before decoding.
+	Softmax bool `json:"softmax,omitempty"`
+	// Confidence is the mean ("mean", default) or the minimum ("min") of
+	// the kept characters' probabilities.
+	Confidence string `json:"confidence,omitempty"`
 	// AppendSpace adds a space class after the character list.
 	AppendSpace bool `json:"append_space,omitempty"`
 }
@@ -159,14 +191,22 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("detector postprocess %q is not supported (db)", m.Detector.PostProcess.Type)
 	case m.Detector.LimitSide <= 0:
 		return fmt.Errorf("detector limit_side must be positive")
-	case m.Detector.LimitType != "" && m.Detector.LimitType != "max" && m.Detector.LimitType != "min":
-		return fmt.Errorf("detector limit_type %q (max, min)", m.Detector.LimitType)
+	case m.Detector.LimitType != "" && m.Detector.LimitType != "max" && m.Detector.LimitType != "min" && m.Detector.LimitType != "fit":
+		return fmt.Errorf("detector limit_type %q (max, min, fit)", m.Detector.LimitType)
+	case m.Detector.Pad != "" && m.Detector.Pad != "end" && m.Detector.Pad != "center":
+		return fmt.Errorf("detector pad %q (end, center)", m.Detector.Pad)
+	case m.Detector.PostProcess.Activation != "" && m.Detector.PostProcess.Activation != "sigmoid":
+		return fmt.Errorf("detector activation %q (sigmoid)", m.Detector.PostProcess.Activation)
+	case m.Detector.PostProcess.Boxes != "" && m.Detector.PostProcess.Boxes != "rotated" && m.Detector.PostProcess.Boxes != "straight":
+		return fmt.Errorf("detector boxes %q (rotated, straight)", m.Detector.PostProcess.Boxes)
+	case m.Recognizer.Decoder.Confidence != "" && m.Recognizer.Decoder.Confidence != "mean" && m.Recognizer.Decoder.Confidence != "min":
+		return fmt.Errorf("decoder confidence %q (mean, min)", m.Recognizer.Decoder.Confidence)
 	case m.Recognizer.Height <= 0:
 		return fmt.Errorf("recognizer height must be positive")
-	case m.Recognizer.Decoder.Type != "ctc":
-		return fmt.Errorf("recognizer decoder %q is not supported (ctc)", m.Recognizer.Decoder.Type)
-	case (m.Recognizer.Charset.YAML == "") == (m.Recognizer.Charset.File == ""):
-		return fmt.Errorf("recognizer charset needs exactly one of yaml or file")
+	case m.Recognizer.Decoder.Type != "ctc" && m.Recognizer.Decoder.Type != "attention":
+		return fmt.Errorf("recognizer decoder %q is not supported (ctc, attention)", m.Recognizer.Decoder.Type)
+	case countSet(m.Recognizer.Charset.YAML, m.Recognizer.Charset.File, m.Recognizer.Charset.JSON) != 1:
+		return fmt.Errorf("recognizer charset needs exactly one of yaml, file or json")
 	}
 	for name, in := range map[string]Input{"detector": m.Detector.Input, "recognizer": m.Recognizer.Input} {
 		if err := in.validate(); err != nil {
@@ -208,6 +248,16 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
+func countSet(values ...string) int {
+	n := 0
+	for _, v := range values {
+		if v != "" {
+			n++
+		}
+	}
+	return n
+}
+
 func (in Input) validate() error {
 	if in.Color != "" && in.Color != "bgr" && in.Color != "rgb" {
 		return fmt.Errorf("color %q (bgr, rgb)", in.Color)
@@ -238,6 +288,9 @@ func (m *Manifest) Files() []string {
 	}
 	if m.Recognizer.Charset.File != "" {
 		files = append(files, m.Recognizer.Charset.File)
+	}
+	if m.Recognizer.Charset.JSON != "" {
+		files = append(files, m.Recognizer.Charset.JSON)
 	}
 	return files
 }

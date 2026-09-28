@@ -3,6 +3,7 @@ package engine
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,29 @@ import (
 
 // loadCharset reads the recognizer's character list.
 func loadCharset(dir string, c Charset) ([]string, error) {
+	if c.JSON != "" {
+		data, err := os.ReadFile(filepath.Join(dir, c.JSON))
+		if err != nil {
+			return nil, err
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(data, &obj); err != nil {
+			return nil, fmt.Errorf("%s: %v", filepath.Join(dir, c.JSON), err)
+		}
+		key := c.Key
+		if key == "" {
+			key = "vocab"
+		}
+		vocab, ok := obj[key].(string)
+		if !ok || vocab == "" {
+			return nil, fmt.Errorf("%s: no string %q", filepath.Join(dir, c.JSON), key)
+		}
+		var chars []string
+		for _, r := range vocab {
+			chars = append(chars, string(r))
+		}
+		return chars, nil
+	}
 	if c.File != "" {
 		data, err := os.ReadFile(filepath.Join(dir, c.File))
 		if err != nil {

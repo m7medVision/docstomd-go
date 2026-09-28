@@ -386,6 +386,16 @@ download leaves no partial model.
 | `pp-ocrv5-mobile` (default) | Chinese, English, Japanese | 27 MB | Apache-2.0 |
 | `pp-ocrv5-server` | Chinese, English, Japanese | 171 MB | Apache-2.0 |
 | `pp-ocrv5-arabic-mobile` | Arabic, Persian, Urdu, Uyghur, Pashto, Kurdish, Sindhi (+ Latin, digits) | 19 MB | Apache-2.0 |
+| `doctr-db-mobilenet-crnn-vgg16` | Latin-script languages (docTR, word boxes) | 76 MB | Apache-2.0 |
+| `doctr-db-mobilenet-parseq` | Latin-script languages | 107 MB | Apache-2.0 |
+| `doctr-fast-base-crnn-vgg16` | Latin-script languages | 101 MB | Apache-2.0 |
+| `doctr-fast-base-parseq` | Latin-script languages | 132 MB | Apache-2.0 |
+
+Models are manifests over shared building blocks (DB detection with rotated
+or straight boxes, CTC and attention decoders, several resize and padding
+rules), so a new family needs a manifest, not code. On `onnx`, a model whose
+graph ONNX Runtime cannot build (docTR's PARSeq) runs on `go` instead, with
+a one-line note.
 
 Right-to-left lines come out in logical (reading) order: models whose
 manifest declares `output_order: visual` are reordered with the Unicode

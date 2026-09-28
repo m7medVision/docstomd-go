@@ -506,6 +506,494 @@
           ]
         }
       }
+    },
+    {
+      "id": "doctr-db-mobilenet-crnn-vgg16",
+      "family": "doctr",
+      "description": "docTR DBNet (MobileNetV3-Large) words + CRNN (VGG16-BN) (OnnxTR exports, Mindee docTR): Latin-script languages; word boxes",
+      "languages": [
+        "en",
+        "fr",
+        "de",
+        "es",
+        "it",
+        "pt",
+        "nl"
+      ],
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "path": "det/model.onnx",
+          "source": "hf://Felix92/onnxtr-db-mobilenet-v3-large@21338515c12c7f685b8f1022b9babd90a4b9588a/model.onnx",
+          "sha256": "4987e7bdea372559808bd5add85fda10e179dc639696fb489e59a197a25b4c64",
+          "size": 16076965
+        },
+        {
+          "path": "rec/model.onnx",
+          "source": "hf://Felix92/onnxtr-crnn-vgg16-bn@4eab12721709a4a4834a5428a302f60a480279d5/model.onnx",
+          "sha256": "662979cc0d5ad13bdfb31f89daf8d02f521ddd5a10651a445e8e79918160447c",
+          "size": 63210761
+        },
+        {
+          "path": "rec/config.json",
+          "source": "hf://Felix92/onnxtr-crnn-vgg16-bn@4eab12721709a4a4834a5428a302f60a480279d5/config.json",
+          "sha256": "8b726168c34d13161024d1384fbaec439f7080abfdac1fb14d41884f31c76951",
+          "size": 602
+        }
+      ],
+      "manifest": {
+        "schema": 1,
+        "id": "doctr-db-mobilenet-crnn-vgg16",
+        "family": "doctr",
+        "languages": [
+          "en",
+          "fr",
+          "de",
+          "es",
+          "it",
+          "pt",
+          "nl"
+        ],
+        "license": "Apache-2.0",
+        "output_order": "logical",
+        "detector": {
+          "model": "det/model.onnx",
+          "input": {
+            "color": "rgb",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.798,
+              0.785,
+              0.772
+            ],
+            "std": [
+              0.264,
+              0.2749,
+              0.287
+            ]
+          },
+          "limit_side": 1024,
+          "limit_type": "fit",
+          "multiple": 32,
+          "pad": "center",
+          "pad_value": 0,
+          "buckets": [
+            [
+              1024,
+              1024
+            ]
+          ],
+          "postprocess": {
+            "type": "db",
+            "thresh": 0.3,
+            "box_thresh": 0.1,
+            "unclip_ratio": 1.5,
+            "min_size": 2,
+            "activation": "sigmoid",
+            "boxes": "straight"
+          }
+        },
+        "recognizer": {
+          "model": "rec/model.onnx",
+          "input": {
+            "color": "rgb",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.694,
+              0.695,
+              0.693
+            ],
+            "std": [
+              0.299,
+              0.296,
+              0.301
+            ]
+          },
+          "height": 32,
+          "width": 128,
+          "pad_value": 0,
+          "batches": [
+            1,
+            8
+          ],
+          "charset": {
+            "json": "rec/config.json",
+            "key": "vocab"
+          },
+          "decoder": {
+            "type": "ctc",
+            "blank": -1,
+            "softmax": true,
+            "confidence": "min"
+          }
+        }
+      }
+    },
+    {
+      "id": "doctr-db-mobilenet-parseq",
+      "family": "doctr",
+      "description": "docTR DBNet (MobileNetV3-Large) words + PARSeq (OnnxTR exports, Mindee docTR): Latin-script languages; word boxes; PARSeq runs on the go backend only",
+      "languages": [
+        "en",
+        "fr",
+        "de",
+        "es",
+        "it",
+        "pt",
+        "nl"
+      ],
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "path": "det/model.onnx",
+          "source": "hf://Felix92/onnxtr-db-mobilenet-v3-large@21338515c12c7f685b8f1022b9babd90a4b9588a/model.onnx",
+          "sha256": "4987e7bdea372559808bd5add85fda10e179dc639696fb489e59a197a25b4c64",
+          "size": 16076965
+        },
+        {
+          "path": "rec/model.onnx",
+          "source": "hf://Felix92/onnxtr-parseq@d02cca5bbe77fde88a9890dd05958789acb45028/model.onnx",
+          "sha256": "00b40714e00039c8c04891e5fd98ad5cb46c34fa7133ba09e2a55d4b28d42a68",
+          "size": 96587579
+        },
+        {
+          "path": "rec/config.json",
+          "source": "hf://Felix92/onnxtr-parseq@d02cca5bbe77fde88a9890dd05958789acb45028/config.json",
+          "sha256": "65df96effe67f9e4e01604d319a4423ff33cddb67281b8b3be4e00ba2bbf2cb4",
+          "size": 588
+        }
+      ],
+      "manifest": {
+        "schema": 1,
+        "id": "doctr-db-mobilenet-parseq",
+        "family": "doctr",
+        "languages": [
+          "en",
+          "fr",
+          "de",
+          "es",
+          "it",
+          "pt",
+          "nl"
+        ],
+        "license": "Apache-2.0",
+        "output_order": "logical",
+        "detector": {
+          "model": "det/model.onnx",
+          "input": {
+            "color": "rgb",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.798,
+              0.785,
+              0.772
+            ],
+            "std": [
+              0.264,
+              0.2749,
+              0.287
+            ]
+          },
+          "limit_side": 1024,
+          "limit_type": "fit",
+          "multiple": 32,
+          "pad": "center",
+          "pad_value": 0,
+          "buckets": [
+            [
+              1024,
+              1024
+            ]
+          ],
+          "postprocess": {
+            "type": "db",
+            "thresh": 0.3,
+            "box_thresh": 0.1,
+            "unclip_ratio": 1.5,
+            "min_size": 2,
+            "activation": "sigmoid",
+            "boxes": "straight"
+          }
+        },
+        "recognizer": {
+          "model": "rec/model.onnx",
+          "input": {
+            "color": "rgb",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.694,
+              0.695,
+              0.693
+            ],
+            "std": [
+              0.299,
+              0.296,
+              0.301
+            ]
+          },
+          "height": 32,
+          "width": 128,
+          "pad_value": 0,
+          "batches": [
+            1,
+            8
+          ],
+          "charset": {
+            "json": "rec/config.json",
+            "key": "vocab"
+          },
+          "decoder": {
+            "type": "attention",
+            "eos": -1,
+            "softmax": true,
+            "confidence": "mean"
+          }
+        }
+      }
+    },
+    {
+      "id": "doctr-fast-base-crnn-vgg16",
+      "family": "doctr",
+      "description": "docTR FAST (base) words + CRNN (VGG16-BN) (OnnxTR exports, Mindee docTR): Latin-script languages; word boxes",
+      "languages": [
+        "en",
+        "fr",
+        "de",
+        "es",
+        "it",
+        "pt",
+        "nl"
+      ],
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "path": "det/model.onnx",
+          "source": "hf://Felix92/onnxtr-fast-base@9e1b4f4773acfee2f252523c7fa563bf699c1fe5/model.onnx",
+          "sha256": "1b89ebf9b6a5e01eb21b1775efc54aab6dbf8c726dcce938e40ddcb91404b43a",
+          "size": 42342927
+        },
+        {
+          "path": "rec/model.onnx",
+          "source": "hf://Felix92/onnxtr-crnn-vgg16-bn@4eab12721709a4a4834a5428a302f60a480279d5/model.onnx",
+          "sha256": "662979cc0d5ad13bdfb31f89daf8d02f521ddd5a10651a445e8e79918160447c",
+          "size": 63210761
+        },
+        {
+          "path": "rec/config.json",
+          "source": "hf://Felix92/onnxtr-crnn-vgg16-bn@4eab12721709a4a4834a5428a302f60a480279d5/config.json",
+          "sha256": "8b726168c34d13161024d1384fbaec439f7080abfdac1fb14d41884f31c76951",
+          "size": 602
+        }
+      ],
+      "manifest": {
+        "schema": 1,
+        "id": "doctr-fast-base-crnn-vgg16",
+        "family": "doctr",
+        "languages": [
+          "en",
+          "fr",
+          "de",
+          "es",
+          "it",
+          "pt",
+          "nl"
+        ],
+        "license": "Apache-2.0",
+        "output_order": "logical",
+        "detector": {
+          "model": "det/model.onnx",
+          "input": {
+            "color": "rgb",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.798,
+              0.785,
+              0.772
+            ],
+            "std": [
+              0.264,
+              0.2749,
+              0.287
+            ]
+          },
+          "limit_side": 1024,
+          "limit_type": "fit",
+          "multiple": 32,
+          "pad": "center",
+          "pad_value": 0,
+          "buckets": [
+            [
+              1024,
+              1024
+            ]
+          ],
+          "postprocess": {
+            "type": "db",
+            "thresh": 0.1,
+            "box_thresh": 0.1,
+            "unclip_ratio": 1.5,
+            "min_size": 2,
+            "activation": "sigmoid",
+            "boxes": "straight"
+          }
+        },
+        "recognizer": {
+          "model": "rec/model.onnx",
+          "input": {
+            "color": "rgb",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.694,
+              0.695,
+              0.693
+            ],
+            "std": [
+              0.299,
+              0.296,
+              0.301
+            ]
+          },
+          "height": 32,
+          "width": 128,
+          "pad_value": 0,
+          "batches": [
+            1,
+            8
+          ],
+          "charset": {
+            "json": "rec/config.json",
+            "key": "vocab"
+          },
+          "decoder": {
+            "type": "ctc",
+            "blank": -1,
+            "softmax": true,
+            "confidence": "min"
+          }
+        }
+      }
+    },
+    {
+      "id": "doctr-fast-base-parseq",
+      "family": "doctr",
+      "description": "docTR FAST (base) words + PARSeq (OnnxTR exports, Mindee docTR): Latin-script languages; word boxes; PARSeq runs on the go backend only",
+      "languages": [
+        "en",
+        "fr",
+        "de",
+        "es",
+        "it",
+        "pt",
+        "nl"
+      ],
+      "license": "Apache-2.0",
+      "files": [
+        {
+          "path": "det/model.onnx",
+          "source": "hf://Felix92/onnxtr-fast-base@9e1b4f4773acfee2f252523c7fa563bf699c1fe5/model.onnx",
+          "sha256": "1b89ebf9b6a5e01eb21b1775efc54aab6dbf8c726dcce938e40ddcb91404b43a",
+          "size": 42342927
+        },
+        {
+          "path": "rec/model.onnx",
+          "source": "hf://Felix92/onnxtr-parseq@d02cca5bbe77fde88a9890dd05958789acb45028/model.onnx",
+          "sha256": "00b40714e00039c8c04891e5fd98ad5cb46c34fa7133ba09e2a55d4b28d42a68",
+          "size": 96587579
+        },
+        {
+          "path": "rec/config.json",
+          "source": "hf://Felix92/onnxtr-parseq@d02cca5bbe77fde88a9890dd05958789acb45028/config.json",
+          "sha256": "65df96effe67f9e4e01604d319a4423ff33cddb67281b8b3be4e00ba2bbf2cb4",
+          "size": 588
+        }
+      ],
+      "manifest": {
+        "schema": 1,
+        "id": "doctr-fast-base-parseq",
+        "family": "doctr",
+        "languages": [
+          "en",
+          "fr",
+          "de",
+          "es",
+          "it",
+          "pt",
+          "nl"
+        ],
+        "license": "Apache-2.0",
+        "output_order": "logical",
+        "detector": {
+          "model": "det/model.onnx",
+          "input": {
+            "color": "rgb",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.798,
+              0.785,
+              0.772
+            ],
+            "std": [
+              0.264,
+              0.2749,
+              0.287
+            ]
+          },
+          "limit_side": 1024,
+          "limit_type": "fit",
+          "multiple": 32,
+          "pad": "center",
+          "pad_value": 0,
+          "buckets": [
+            [
+              1024,
+              1024
+            ]
+          ],
+          "postprocess": {
+            "type": "db",
+            "thresh": 0.1,
+            "box_thresh": 0.1,
+            "unclip_ratio": 1.5,
+            "min_size": 2,
+            "activation": "sigmoid",
+            "boxes": "straight"
+          }
+        },
+        "recognizer": {
+          "model": "rec/model.onnx",
+          "input": {
+            "color": "rgb",
+            "scale": 0.00392156862745098,
+            "mean": [
+              0.694,
+              0.695,
+              0.693
+            ],
+            "std": [
+              0.299,
+              0.296,
+              0.301
+            ]
+          },
+          "height": 32,
+          "width": 128,
+          "pad_value": 0,
+          "batches": [
+            1,
+            8
+          ],
+          "charset": {
+            "json": "rec/config.json",
+            "key": "vocab"
+          },
+          "decoder": {
+            "type": "attention",
+            "eos": -1,
+            "softmax": true,
+            "confidence": "mean"
+          }
+        }
+      }
     }
   ],
   "runtimes": [

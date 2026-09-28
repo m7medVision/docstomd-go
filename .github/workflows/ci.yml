@@ -82,7 +82,7 @@ jobs:
           path: .ocr-models
           key: ocr-models-${{ hashFiles('ocr/catalog/builtin.json') }}
       - if: steps.models.outputs.cache-hit != 'true'
-        run: go run ./cmd/docstomd-ocr-local install --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile pp-ocrv5-arabic-mobile
+        run: go run ./cmd/docstomd-ocr-local install --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile pp-ocrv5-arabic-mobile doctr-db-mobilenet-crnn-vgg16 doctr-db-mobilenet-parseq doctr-fast-base-crnn-vgg16 doctr-fast-base-parseq
       - run: go test ./...
 
   # The onnx backend must reproduce the go goldens. ONNX Runtime and the models
@@ -112,5 +112,5 @@ jobs:
             .ocr-runtimes
           key: ocr-onnx-${{ hashFiles('ocr/catalog/builtin.json') }}
       - if: steps.cache.outputs.cache-hit != 'true'
-        run: go run ./cmd/docstomd-ocr-local install --backend onnx --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile pp-ocrv5-arabic-mobile
+        run: go run ./cmd/docstomd-ocr-local install --backend onnx --models "$DOCSTOMD_OCR_TEST_MODELS" pp-ocrv5-mobile pp-ocrv5-arabic-mobile doctr-db-mobilenet-crnn-vgg16 doctr-db-mobilenet-parseq doctr-fast-base-crnn-vgg16 doctr-fast-base-parseq
       - run: go test ./...

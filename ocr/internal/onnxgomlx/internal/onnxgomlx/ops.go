@@ -2320,8 +2320,11 @@ func convertMaxPool(_ *Model, _ map[string]*Node, node *protos.NodeProto, inputs
 		exceptions.Panicf("MaxPool: support for attribute 'ceil_mode' is not yet implemented")
 	}
 	dilations := GetIntsAttrOr(node, "dilations", nil)
-	if dilations != nil {
-		exceptions.Panicf("MaxPool: support for attribute 'dilations' is not yet implemented")
+	for _, d := range dilations {
+		// docstomd patch: explicit unit dilations are the default.
+		if d != 1 {
+			exceptions.Panicf("MaxPool: support for attribute 'dilations' is not yet implemented")
+		}
 	}
 	storageOrder := GetIntAttrOr(node, "storage_order", 0)
 	if storageOrder != 0 {
@@ -3720,6 +3723,23 @@ func convertResize(m *Model, convertedOutputs map[string]*Node, node *protos.Nod
 			return Reshape(BroadcastToDims(Reshape(x, expDims...), bcDims...), outDims...)
 		}
 	}
+	// docstomd patch: linear resize of the spatial axes of an NCHW tensor as
+	// two matrix products with constant interpolation weights. It is exact
+	// for these coordinate modes and needs no Gather, which some backends
+	// (ONNX Runtime through compute-onnx) cannot express.
+	if mode == "linear" && x.Rank() == 4 && outputSizes[0] == NoInterpolation && outputSizes[1] == NoInterpolation && x.DType() == dtypes.Float32 {
+		switch coordTransformMode {
+		case "align_corners", "half_pixel", "pytorch_half_pixel", "asymmetric":
+			out := x
+			if outputSizes[3] != NoInterpolation {
+				out = Einsum("nchw,vw->nchv", out, Const(x.Graph(), linearResizeWeights(inputDims[3], outputSizes[3], coordTransformMode)))
+			}
+			if outputSizes[2] != NoInterpolation {
+				out = Einsum("nchv,uh->ncuv", out, Const(x.Graph(), linearResizeWeights(inputDims[2], outputSizes[2], coordTransformMode)))
+			}
+			return out
+		}
+	}
 	config := Interpolate(x, outputSizes...)
 
 	switch mode {
@@ -3852,4 +3872,35 @@ func convertConvTranspose(_ *Model, _ map[string]*Node, node *protos.NodeProto, 
 		out = Add(out, Reshape(b, shape...))
 	}
 	return out
+}
+
+// linearResizeWeights (docstomd patch) is the out×in matrix of 1-D linear
+// interpolation weights for ONNX Resize's coordinate transformation mode.
+func linearResizeWeights(in, out int, mode string) [][]float32 {
+	w := make([][]float32, out)
+	for o := range out {
+		w[o] = make([]float32, in)
+		var x float64
+		switch mode {
+		case "align_corners":
+			if out > 1 {
+				x = float64(o) * float64(in-1) / float64(out-1)
+			}
+		case "asymmetric":
+			x = float64(o) * float64(in) / float64(out)
+		case "pytorch_half_pixel":
+			if out > 1 {
+				x = (float64(o)+0.5)*float64(in)/float64(out) - 0.5
+			}
+		default: // half_pixel
+			x = (float64(o)+0.5)*float64(in)/float64(out) - 0.5
+		}
+		x = math.Max(0, math.Min(x, float64(in-1)))
+		i0 := int(math.Floor(x))
+		i1 := min(i0+1, in-1)
+		f := float32(x - float64(i0))
+		w[o][i0] += 1 - f
+		w[o][i1] += f
+	}
+	return w
 }

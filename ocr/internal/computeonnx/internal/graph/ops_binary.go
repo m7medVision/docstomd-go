@@ -58,6 +58,16 @@ func (f *Function) Max(lhs, rhs compute.Value) (compute.Value, error) {
 	return f.addBinaryOp(compute.OpTypeMax, "Max", lhs, rhs)
 }
 
+// Clamp (docstomd patch) is Min(Max(x, lo), hi); ONNX Clip needs scalar
+// bounds, which GoMLX does not guarantee.
+func (f *Function) Clamp(lo, x, hi compute.Value) (compute.Value, error) {
+	v, err := f.Max(x, lo)
+	if err != nil {
+		return nil, err
+	}
+	return f.Min(v, hi)
+}
+
 func (f *Function) Min(lhs, rhs compute.Value) (compute.Value, error) {
 	return f.addBinaryOp(compute.OpTypeMin, "Min", lhs, rhs)
 }

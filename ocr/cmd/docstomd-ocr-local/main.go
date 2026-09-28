@@ -145,6 +145,8 @@ type server struct {
 	// loadErr is kept so a missing model is reported on every request
 	// without retrying the load.
 	loadErr error
+	// fellBackReported is set once the backend fallback was reported.
+	fellBackReported bool
 }
 
 func (s *server) serve(ctx context.Context, stdin io.Reader, stdout io.Writer) int {
@@ -259,6 +261,10 @@ func (s *server) recognize(ctx context.Context, req request) ([]pageResult, erro
 			result.Lines = append(result.Lines, line{Text: ln.Text, Box: box{x0, y0, x1, y1}, Confidence: ln.Confidence})
 		}
 		pages = append(pages, result)
+	}
+	if fell := eng.FellBack(); len(fell) > 0 && !s.fellBackReported {
+		s.fellBackReported = true
+		fmt.Fprintf(s.stderr, "docstomd-ocr-local: %s run on the pure-Go backend: the selected backend cannot build their graphs\n", strings.Join(fell, ", "))
 	}
 	return pages, nil
 }

@@ -170,3 +170,14 @@ func TestLogicalModelsUntouched(t *testing.T) {
 	}
 	ocrtest.CompareLines(t, recognize(t, eng, "field-report-flate.pdf"), ocrtest.Golden(t, "field-report"))
 }
+
+// TestDocTRFamilies: every docTR detector × recognizer combination of the
+// built-in catalog reads the fixture word for word.
+func TestDocTRFamilies(t *testing.T) {
+	for _, id := range []string{"doctr-db-mobilenet-crnn-vgg16", "doctr-db-mobilenet-parseq", "doctr-fast-base-crnn-vgg16", "doctr-fast-base-parseq"} {
+		t.Run(id, func(t *testing.T) {
+			eng := load(t, id)
+			ocrtest.CompareWords(t, recognize(t, eng, "field-report-jpeg.pdf"), "field-report.txt")
+		})
+	}
+}

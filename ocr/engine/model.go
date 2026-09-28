@@ -2,14 +2,17 @@ package engine
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	"github.com/gomlx/compute"
 	"github.com/gomlx/compute-onnx/support/protos"
-	. "github.com/gomlx/gomlx/core/graph" //nolint:revive // GoMLX graph DSL
+	_ "github.com/gomlx/compute/gobackend" // fallback for graphs a native backend cannot build
+	. "github.com/gomlx/gomlx/core/graph"  //nolint:revive // GoMLX graph DSL
 	"github.com/gomlx/gomlx/core/tensors"
 	"github.com/gomlx/gomlx/ml/model"
 	"google.golang.org/protobuf/proto"
@@ -24,14 +27,20 @@ const minNormal = 0x1p-126
 // concurrent use.
 type net struct {
 	name   string
+	raw    []byte
 	exec   *model.Exec
 	store  *model.Store
 	input  string
 	output string
+	// backend is the backend exec runs on.
+	backend compute.Backend
 	// builds counts graph builds: one per distinct input shape.
 	builds atomic.Int64
 	// flushed counts the denormal weights zeroed at load.
 	flushed int
+	// fellBack is set once the model moved to the pure-Go backend because
+	// its backend cannot build its graph.
+	fellBack bool
 }
 
 // loadNet reads an ONNX file, zeroes its denormal weights and prepares it
@@ -50,35 +59,70 @@ func loadNet(backend compute.Backend, path string) (*net, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, err := parser.Parse(raw)
+	n := &net{name: path, raw: raw, flushed: flushed}
+	if err := n.compile(backend); err != nil {
+		return nil, err
+	}
+	return n, nil
+}
+
+// compile parses the model into a fresh store and prepares it for backend.
+func (n *net) compile(backend compute.Backend) error {
+	m, err := parser.Parse(n.raw)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %v", path, err)
+		return fmt.Errorf("%s: %v", n.name, err)
 	}
 	inputs, _ := m.Inputs()
 	outputs, _ := m.Outputs()
 	if len(inputs) != 1 || len(outputs) < 1 {
-		return nil, fmt.Errorf("%s: want one input and at least one output, got %v → %v", path, inputs, outputs)
+		return fmt.Errorf("%s: want one input and at least one output, got %v → %v", n.name, inputs, outputs)
 	}
 	store := model.NewStore()
 	if err := m.VariablesToScope(store.RootScope()); err != nil {
-		return nil, fmt.Errorf("%s: %v", path, err)
+		return fmt.Errorf("%s: %v", n.name, err)
 	}
-	n := &net{name: path, store: store, input: inputs[0], output: outputs[0], flushed: flushed}
+	input, output := inputs[0], outputs[0]
 	exec, err := model.NewExec(backend, store, func(scope *model.Scope, x *Node) *Node {
 		n.builds.Add(1)
-		return m.CallGraph(scope, x.Graph(), map[string]*Node{n.input: x}, n.output)[0]
+		return m.CallGraph(scope, x.Graph(), map[string]*Node{input: x}, output)[0]
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	exec.SetMaxCache(64)
-	n.exec = exec
-	return n, nil
+	if n.exec != nil {
+		n.exec.Finalize()
+	}
+	n.exec, n.store, n.input, n.output, n.backend = exec, store, input, output, backend
+	return nil
 }
 
 // run executes the model on a float32 NCHW input and returns the flat
-// output and its dimensions.
-func (n *net) run(data []float32, dims ...int) (out []float32, outDims []int, err error) {
+// output and its dimensions. When a native backend cannot build the graph
+// (an operation it does not implement), the model moves to the pure-Go
+// backend for good and the call is retried there.
+func (n *net) run(data []float32, dims ...int) ([]float32, []int, error) {
+	out, outDims, err := n.call(data, dims)
+	if err == nil || n.backend.Name() == "go" || !notImplemented(err) {
+		return out, outDims, err
+	}
+	goBackend, gerr := compute.NewWithConfig("go")
+	if gerr != nil {
+		return nil, nil, err
+	}
+	if cerr := n.compile(goBackend); cerr != nil {
+		return nil, nil, err
+	}
+	n.fellBack = true
+	return n.call(data, dims)
+}
+
+func notImplemented(err error) bool {
+	msg := err.Error()
+	return errors.Is(err, compute.ErrNotImplemented) || strings.Contains(msg, "not implemented") || strings.Contains(msg, "does not support")
+}
+
+func (n *net) call(data []float32, dims []int) (out []float32, outDims []int, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("%s: %v", n.name, r)
